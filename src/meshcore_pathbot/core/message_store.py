@@ -18,7 +18,7 @@ class MessageStore:
     """SQLite-persisted message history.
 
     Each entry:
-        id, direction ("in"/"out"), peer, text, timestamp, channel, path
+        id, direction ("in"/"out"), peer, text, timestamp, channel, path, rxlog
     """
 
     def __init__(self, filepath: Path):
@@ -50,7 +50,8 @@ class MessageStore:
                 text TEXT NOT NULL,
                 timestamp REAL NOT NULL,
                 channel INTEGER,
-                path TEXT NOT NULL DEFAULT ''
+                path TEXT NOT NULL DEFAULT '',
+                rxlog TEXT NOT NULL DEFAULT ''
             );
 
             CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
@@ -58,7 +59,16 @@ class MessageStore:
             CREATE INDEX IF NOT EXISTS idx_messages_peer_path ON messages(peer, path);
             """
         )
+        self._ensure_column_sync("rxlog", "TEXT NOT NULL DEFAULT ''")
         self._conn.commit()
+
+    def _ensure_column_sync(self, name: str, spec: str) -> None:
+        existing_cols = {
+            str(row["name"])
+            for row in self._conn.execute("PRAGMA table_info(messages)").fetchall()
+        }
+        if name not in existing_cols:
+            self._conn.execute(f"ALTER TABLE messages ADD COLUMN {name} {spec}")
 
     def _migrate_legacy_json_sync(self) -> None:
         if not self.legacy_filepath.exists() or self.legacy_filepath.suffix != ".json":
@@ -89,6 +99,7 @@ class MessageStore:
             text = str(raw.get("text", ""))
             channel = raw.get("channel")
             path = str(raw.get("path", ""))
+            rxlog = str(raw.get("rxlog", ""))
             msg_id = str(raw.get("id", f"{time.time_ns()}_{direction}"))
             self._insert_sync(
                 {
@@ -99,6 +110,7 @@ class MessageStore:
                     "timestamp": ts,
                     "channel": channel,
                     "path": path,
+                    "rxlog": rxlog,
                 }
             )
             inserted += 1
@@ -113,8 +125,8 @@ class MessageStore:
         self._conn.execute(
             """
             INSERT OR REPLACE INTO messages
-            (id, direction, peer, text, timestamp, channel, path)
-            VALUES (:id, :direction, :peer, :text, :timestamp, :channel, :path)
+            (id, direction, peer, text, timestamp, channel, path, rxlog)
+            VALUES (:id, :direction, :peer, :text, :timestamp, :channel, :path, :rxlog)
             """,
             entry,
         )
@@ -151,6 +163,7 @@ class MessageStore:
         timestamp: float | None = None,
         channel: int | None = None,
         path: str = "",
+        rxlog: str = "",
     ) -> dict:
         """Add a message to the store. Returns the created entry."""
         ts = float(timestamp or time.time())
@@ -162,6 +175,7 @@ class MessageStore:
             "timestamp": ts,
             "channel": channel,
             "path": path,
+            "rxlog": rxlog,
         }
 
         async with self._lock:
@@ -175,7 +189,7 @@ class MessageStore:
         """Return all messages sorted by timestamp (newest first)."""
         rows = self._conn.execute(
             """
-            SELECT id, direction, peer, text, timestamp, channel, path
+            SELECT id, direction, peer, text, timestamp, channel, path, rxlog
             FROM messages
             ORDER BY timestamp DESC
             """
@@ -186,7 +200,7 @@ class MessageStore:
         """Return the most recent N messages (newest first)."""
         rows = self._conn.execute(
             """
-            SELECT id, direction, peer, text, timestamp, channel, path
+            SELECT id, direction, peer, text, timestamp, channel, path, rxlog
             FROM messages
             ORDER BY timestamp DESC
             LIMIT ?
