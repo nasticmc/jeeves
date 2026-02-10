@@ -234,14 +234,28 @@ class PathBot:
         is_trace = "trace" in body_lower
         is_ping = "ping" in body_lower
         is_paths = "paths" in body_lower
+        is_prefix = body_lower.startswith("prefix")
 
-        if not is_trace and not is_ping and not is_paths:
+        if not is_trace and not is_ping and not is_paths and not is_prefix:
             return
 
         self.stats.commands_processed += 1
 
+        # Handle prefix command — look up repeater names from hex prefixes
+        if is_prefix:
+            log.info(f"Prefix lookup from {sender}")
+            # Extract hex argument after "prefix" keyword
+            hex_arg = msg_body[len("prefix"):].strip()
+            if hex_arg:
+                lookup = self.resolver.lookup_prefixes(hex_arg)
+                if lookup:
+                    reply = f"@[{sender}] {lookup}"
+                else:
+                    reply = f"@[{sender}] invalid prefix string"
+            else:
+                reply = f"@[{sender}] usage: prefix <hex> (e.g. prefix fb:1f:7a)"
         # Handle paths command
-        if is_paths:
+        elif is_paths:
             log.info(f"Paths from {sender}")
             reply = self._build_paths_reply(sender)
         # Handle trace command
