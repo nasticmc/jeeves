@@ -29,8 +29,20 @@ document.addEventListener('htmx:sseMessage', function(event) {
             var tr = document.createElement('tr');
             var direction = event.detail.type === 'msg_out' ? 'out' : 'in';
 
-            // Format timestamp
-            var ts = data.timestamp ? new Date(data.timestamp * 1000).toLocaleTimeString() : '--';
+            // Format timestamp with fixed precision so it doesn't collapse
+            // to minute-level output on some locales.
+            var ts = '--';
+            var tsTitle = '';
+            if (data.timestamp) {
+                var date = new Date(data.timestamp * 1000);
+                ts = date.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false,
+                });
+                tsTitle = date.toLocaleString();
+            }
             var peer = data.sender || data.recipient || '--';
             var text = data.text || '';
 
@@ -38,7 +50,7 @@ document.addEventListener('htmx:sseMessage', function(event) {
             var badgeText = direction === 'out' ? 'OUT' : 'IN';
 
             tr.innerHTML =
-                '<td><small>' + ts + '</small></td>' +
+                '<td><small title="' + tsTitle + '">' + ts + '</small></td>' +
                 '<td><span class="' + badgeClass + '">' + badgeText + '</span></td>' +
                 '<td>' + peer + '</td>' +
                 '<td>' + text + '</td>';
