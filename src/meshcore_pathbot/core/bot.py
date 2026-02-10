@@ -178,20 +178,45 @@ class PathBot:
         # No colon — entire text is the message, sender unknown
         return "???", text
 
+    def _build_paths_reply(self, sender: str) -> str:
+        """Build reply for the 'paths' command — unique paths seen from this sender."""
+        raw_paths = self.message_store.get_paths_for_peer(sender)
+
+        if not raw_paths:
+            return f"@[{sender}] no paths recorded"
+
+        formatted = []
+        for rp in raw_paths:
+            if not rp or len(rp) < 2 or len(rp) % 2 != 0:
+                formatted.append("direct")
+            else:
+                hop_count = len(rp) // 2
+                split = ":".join(rp[i:i + 2] for i in range(0, len(rp), 2))
+                formatted.append(f"{split} ({hop_count})")
+
+        # Deduplicate (empty paths all become "direct")
+        seen: list[str] = []
+        for f in formatted:
+            if f not in seen:
+                seen.append(f)
+
+        return f"@[{sender}] {len(seen)} paths: {', '.join(seen)}"
+
     async def _on_channel_msg(self, event) -> None:
-        """Handle incoming channel message — check for trace or ping."""
+        """Handle incoming channel message — check for trace, ping, or paths."""
         data = event.payload
         sender, msg_body = self._parse_sender(data)
         text = data.get("text", "")
+        raw_path = data.get("path", "")
 
-        log.debug(f"Channel msg from {sender}: {text}")
+        log.debug(f"Channel msg from {sender}: {text} (path={raw_path})")
 
         self.stats.messages_in += 1
         self.stats.last_message_at = time.time()
         ts = time.time()
 
         await self.message_store.add(
-            "in", sender, text, ts, self.config.bot.channel,
+            "in", sender, text, ts, self.config.bot.channel, path=raw_path,
         )
         await self.bus.publish(
             AppEvent.MSG_IN,
@@ -208,23 +233,28 @@ class PathBot:
         body_lower = msg_body.lower()
         is_trace = "trace" in body_lower
         is_ping = "ping" in body_lower
+        is_paths = "paths" in body_lower
 
-        if not is_trace and not is_ping:
+        if not is_trace and not is_ping and not is_paths:
             return
 
-        log.info(f"{'Trace' if is_trace else 'Ping'} from {sender}")
         self.stats.commands_processed += 1
 
-        raw_path = data.get("path", "")
-
-        # Build reply
-        if is_trace:
+        # Handle paths command
+        if is_paths:
+            log.info(f"Paths from {sender}")
+            reply = self._build_paths_reply(sender)
+        # Handle trace command
+        elif is_trace:
+            log.info(f"Trace from {sender}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 resolved = self.resolver.resolve(raw_path)
                 reply = f"@[{sender}] {resolved}"
             else:
                 reply = f"@[{sender}] rxed (no path data)"
+        # Handle ping command
         else:
+            log.info(f"Ping from {sender}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 raw_fmt = self.resolver.raw(raw_path)
                 reply = f"@[{sender}] {raw_fmt}"

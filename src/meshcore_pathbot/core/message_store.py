@@ -17,7 +17,7 @@ class MessageStore:
     """In-memory + JSON-persisted message history.
 
     Each entry:
-        id, direction ("in"/"out"), peer, text, timestamp, channel
+        id, direction ("in"/"out"), peer, text, timestamp, channel, path
     """
 
     def __init__(self, filepath: Path):
@@ -65,6 +65,7 @@ class MessageStore:
         text: str,
         timestamp: float | None = None,
         channel: int | None = None,
+        path: str = "",
     ) -> dict:
         """Add a message to the store. Returns the created entry."""
         ts = timestamp or time.time()
@@ -75,6 +76,7 @@ class MessageStore:
             "text": text,
             "timestamp": ts,
             "channel": channel,
+            "path": path,
         }
 
         async with self._lock:
@@ -93,6 +95,24 @@ class MessageStore:
     def get_recent(self, count: int = 50) -> list[dict]:
         """Return the most recent N messages (newest first)."""
         return self.get_all()[:count]
+
+    def get_paths_for_peer(self, peer: str) -> list[str]:
+        """Return unique raw path hex strings seen from a given peer.
+
+        Returns a list of unique path strings (e.g. ["fb1f7a", "a1b2"]).
+        Empty string paths are tracked as "direct".
+        """
+        peer_lower = peer.lower()
+        seen: set[str] = set()
+        for msg in self.messages:
+            if msg.get("direction") != "in":
+                continue
+            msg_peer = msg.get("peer", "")
+            if msg_peer.lower() != peer_lower:
+                continue
+            raw = msg.get("path", "")
+            seen.add(raw)
+        return sorted(seen)
 
     async def clear(self) -> None:
         """Clear all messages."""
