@@ -3,7 +3,7 @@
     <td><code>{{ r.prefix }}</code></td>
     <td>{{ "%.4f" | format(r.lat) if r.lat else '--' }}</td>
     <td>{{ "%.4f" | format(r.lon) if r.lon else '--' }}</td>
-    <td><small>{{ r.last_seen | default('--') }}</small></td>
+    <td title="{{ r.last_seen | fmt_datetime }}"><small>{{ r.last_seen | fmt_relative }}</small></td>
     <td>
         <button
             class="outline secondary"

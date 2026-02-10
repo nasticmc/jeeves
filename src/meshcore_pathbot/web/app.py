@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -58,7 +60,37 @@ def create_app(
         except (ValueError, OSError):
             return "--"
 
+    def format_relative(ts: float | int | None) -> str:
+        """Unix timestamp -> '2m ago', '3h ago', '1d ago', etc."""
+        if not ts:
+            return "--"
+        try:
+            diff = time.time() - float(ts)
+            if diff < 0:
+                return "just now"
+            if diff < 60:
+                return f"{int(diff)}s ago"
+            if diff < 3600:
+                return f"{int(diff // 60)}m ago"
+            if diff < 86400:
+                return f"{int(diff // 3600)}h ago"
+            return f"{int(diff // 86400)}d ago"
+        except (ValueError, TypeError):
+            return "--"
+
+    def format_datetime(ts: float | int | None) -> str:
+        """Unix timestamp -> full date/time string for tooltips."""
+        if not ts:
+            return ""
+        try:
+            dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+        except (ValueError, OSError):
+            return ""
+
     templates.env.filters["fmt_time"] = format_timestamp
+    templates.env.filters["fmt_relative"] = format_relative
+    templates.env.filters["fmt_datetime"] = format_datetime
     app.state.templates = templates
 
     # Mount static files
