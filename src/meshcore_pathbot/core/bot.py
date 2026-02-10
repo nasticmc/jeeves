@@ -154,11 +154,35 @@ class PathBot:
             if entry:
                 await self.bus.publish(AppEvent.REPEATER_UPDATE, entry)
 
+    @staticmethod
+    def _parse_sender(data: dict) -> tuple[str, str]:
+        """Extract sender name and message body from channel message payload.
+
+        MeshCore channel messages embed the sender in the text field as "Name: message".
+        Falls back to sender_name/pubkey_prefix fields if available.
+
+        Returns (sender_name, message_body).
+        """
+        text = data.get("text", "")
+
+        # Try explicit fields first
+        sender = data.get("sender_name", data.get("pubkey_prefix", ""))
+        if sender:
+            return sender, text
+
+        # Parse "Name: message" format from text field
+        if ": " in text:
+            sender, body = text.split(": ", 1)
+            return sender.strip(), body.strip()
+
+        # No colon — entire text is the message, sender unknown
+        return "???", text
+
     async def _on_channel_msg(self, event) -> None:
         """Handle incoming channel message — check for trace or ping."""
         data = event.payload
+        sender, msg_body = self._parse_sender(data)
         text = data.get("text", "")
-        sender = data.get("sender_name", data.get("pubkey_prefix", "???"))
 
         log.debug(f"Channel msg from {sender}: {text}")
 
@@ -181,9 +205,9 @@ class PathBot:
             log.debug(f"Ignoring message from {sender} (in ignore list)")
             return
 
-        text_lower = text.lower()
-        is_trace = "trace" in text_lower
-        is_ping = "ping" in text_lower
+        body_lower = msg_body.lower()
+        is_trace = "trace" in body_lower
+        is_ping = "ping" in body_lower
 
         if not is_trace and not is_ping:
             return
