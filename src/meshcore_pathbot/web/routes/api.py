@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Request
 from sse_starlette import EventSourceResponse
 
 from ...events.types import AppEvent
-from ..dependencies import get_bot, get_bus, get_db
+from ..dependencies import get_bot, get_bus, get_db, get_message_store
 from ..sse import sse_stream
 
 router = APIRouter()
@@ -55,6 +55,15 @@ async def uptime(bot=Depends(get_bot)):
     elif minutes > 0:
         return f"{minutes}m {secs}s"
     return f"{secs}s"
+
+
+@router.get("/messages/history")
+async def messages_history(
+    count: int = 200,
+    store=Depends(get_message_store),
+):
+    """Return message history as JSON."""
+    return store.get_recent(count)
 
 
 @router.get("/stats/json")

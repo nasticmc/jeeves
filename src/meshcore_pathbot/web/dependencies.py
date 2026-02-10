@@ -6,6 +6,7 @@ from fastapi import Request
 
 from ..config.schema import AppConfig
 from ..core.bot import PathBot
+from ..core.message_store import MessageStore
 from ..core.repeater_db import RepeaterDB
 from ..events.bus import EventBus
 
@@ -24,3 +25,7 @@ def get_db(request: Request) -> RepeaterDB:
 
 def get_bus(request: Request) -> EventBus:
     return request.app.state.bus
+
+
+def get_message_store(request: Request) -> MessageStore:
+    return request.app.state.message_store

@@ -9,6 +9,7 @@ import uvicorn
 
 from .config.schema import AppConfig
 from .core.bot import PathBot
+from .core.message_store import MessageStore
 from .core.repeater_db import RepeaterDB
 from .events.bus import EventBus
 
@@ -21,12 +22,17 @@ async def run(config: AppConfig) -> None:
     db = RepeaterDB(config.bot.repeaters_file)
     await db.load()
 
-    bot = PathBot(config, db, bus)
+    # Message store lives alongside repeaters file
+    messages_path = config.bot.repeaters_file.parent / "messages.json"
+    message_store = MessageStore(messages_path)
+    await message_store.load()
+
+    bot = PathBot(config, db, bus, message_store)
 
     if config.web.enabled:
         from .web.app import create_app
 
-        web_app = create_app(config, bot, db, bus)
+        web_app = create_app(config, bot, db, bus, message_store)
         uvi_config = uvicorn.Config(
             web_app,
             host=config.web.host,

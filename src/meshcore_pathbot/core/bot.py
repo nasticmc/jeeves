@@ -11,6 +11,7 @@ from meshcore import EventType, MeshCore
 from ..config.schema import AppConfig
 from ..events.bus import EventBus
 from ..events.types import AppEvent
+from .message_store import MessageStore
 from .path_resolver import PathResolver
 from .repeater_db import RepeaterDB
 
@@ -46,10 +47,11 @@ class BotStats:
 class PathBot:
     """Core bot: connects to MeshCore, handles trace/ping commands."""
 
-    def __init__(self, config: AppConfig, db: RepeaterDB, bus: EventBus):
+    def __init__(self, config: AppConfig, db: RepeaterDB, bus: EventBus, message_store: MessageStore):
         self.config = config
         self.db = db
         self.bus = bus
+        self.message_store = message_store
         self.resolver = PathResolver(db)
         self.stats = BotStats()
         self._mc: MeshCore | None = None
@@ -162,10 +164,14 @@ class PathBot:
 
         self.stats.messages_in += 1
         self.stats.last_message_at = time.time()
+        ts = time.time()
 
+        await self.message_store.add(
+            "in", sender, text, ts, self.config.bot.channel,
+        )
         await self.bus.publish(
             AppEvent.MSG_IN,
-            {"sender": sender, "text": text, "timestamp": time.time()},
+            {"sender": sender, "text": text, "timestamp": ts},
         )
 
         # Check ignore list
@@ -211,8 +217,12 @@ class PathBot:
             return
 
         self.stats.messages_out += 1
+        out_ts = time.time()
+        await self.message_store.add(
+            "out", sender, reply, out_ts, self.config.bot.channel,
+        )
         await self.bus.publish(
             AppEvent.MSG_OUT,
-            {"recipient": sender, "text": reply, "timestamp": time.time()},
+            {"recipient": sender, "text": reply, "timestamp": out_ts},
         )
         await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())

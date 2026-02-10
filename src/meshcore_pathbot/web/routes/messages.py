@@ -1,10 +1,10 @@
-"""Messages route — live message feed."""
+"""Messages route — live message feed with persistent history."""
 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from ..dependencies import get_bot
+from ..dependencies import get_bot, get_message_store
 
 router = APIRouter()
 
@@ -13,6 +13,7 @@ router = APIRouter()
 async def messages_page(
     request: Request,
     bot=Depends(get_bot),
+    store=Depends(get_message_store),
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -20,5 +21,6 @@ async def messages_page(
         {
             "request": request,
             "stats": bot.stats.to_dict(),
+            "messages": store.get_all(),
         },
     )
