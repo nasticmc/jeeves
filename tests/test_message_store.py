@@ -13,7 +13,7 @@ async def test_message_store_add_get_recent_and_paths_for_peer(tmp_path: Path) -
     store = MessageStore(tmp_path / "messages.db")
     await store.load()
 
-    await store.add("in", "Alice", "hello", timestamp=100.0, path="aa11")
+    await store.add("in", "Alice", "hello", timestamp=100.0, path="aa11", rxlog="rx:A")
     await store.add("in", "alice", "again", timestamp=200.0, path="")
     await store.add("out", "alice", "reply", timestamp=300.0, path="bb22")
 
@@ -21,6 +21,8 @@ async def test_message_store_add_get_recent_and_paths_for_peer(tmp_path: Path) -
     assert len(recent) == 2
     assert recent[0]["text"] == "reply"
     assert recent[1]["text"] == "again"
+    assert recent[1]["rxlog"] == ""
+    assert store.get_recent(3)[2]["rxlog"] == "rx:A"
 
     # only incoming messages for this peer, case-insensitive peer matching
     assert store.get_paths_for_peer("ALICE") == ["", "aa11"]
@@ -40,6 +42,7 @@ async def test_message_store_migrates_legacy_json(tmp_path: Path) -> None:
                     "timestamp": 123.0,
                     "channel": 1,
                     "path": "ff00",
+                    "rxlog": "legacy-rx",
                 }
             ]
         )
@@ -51,4 +54,42 @@ async def test_message_store_migrates_legacy_json(tmp_path: Path) -> None:
     assert store.filepath.suffix == ".db"
     assert store.count == 1
     assert store.get_recent(1)[0]["text"] == "old"
+    assert store.get_recent(1)[0]["rxlog"] == "legacy-rx"
     assert store.get_paths_for_peer("bob") == ["ff00"]
+
+
+@pytest.mark.asyncio
+async def test_message_store_upgrades_existing_db_with_rxlog_column(tmp_path: Path) -> None:
+    db_path = tmp_path / "messages.db"
+    # Simulate an older DB schema without rxlog
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    conn.execute(
+        """
+        CREATE TABLE messages (
+            id TEXT PRIMARY KEY,
+            direction TEXT NOT NULL,
+            peer TEXT NOT NULL,
+            text TEXT NOT NULL,
+            timestamp REAL NOT NULL,
+            channel INTEGER,
+            path TEXT NOT NULL DEFAULT ''
+        )
+        """
+    )
+    conn.execute(
+        """
+        INSERT INTO messages (id, direction, peer, text, timestamp, channel, path)
+        VALUES ('old-1', 'in', 'Carol', 'hi', 10.0, 7, 'abcd')
+        """
+    )
+    conn.commit()
+    conn.close()
+
+    store = MessageStore(db_path)
+    await store.load()
+
+    rows = store.get_recent(1)
+    assert rows[0]["id"] == "old-1"
+    assert rows[0]["rxlog"] == ""

@@ -246,6 +246,7 @@ class PathBot:
         sender, msg_body = self._parse_sender(data)
         text = data.get("text", "")
         raw_path = data.get("path", "")
+        raw_rxlog = data.get("rxlog", "")
 
         log.debug(f"Channel msg from {sender}: {text} (path={raw_path})")
 
@@ -254,7 +255,7 @@ class PathBot:
         ts = time.time()
 
         await self.message_store.add(
-            "in", sender, text, ts, self.config.bot.channel, path=raw_path,
+            "in", sender, text, ts, self.config.bot.channel, path=raw_path, rxlog=str(raw_rxlog),
         )
         await self.bus.publish(
             AppEvent.MSG_IN,
