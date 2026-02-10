@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -50,12 +50,13 @@ def create_app(
     app.state.message_store = message_store
     templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-    # Custom Jinja2 filter: unix timestamp -> readable time
+    # Custom Jinja2 filters — all use server local timezone
     def format_timestamp(ts: float | int | None) -> str:
+        """Unix timestamp -> local HH:MM:SS."""
         if not ts:
             return "--"
         try:
-            dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
+            dt = datetime.fromtimestamp(float(ts))
             return dt.strftime("%H:%M:%S")
         except (ValueError, OSError):
             return "--"
@@ -79,12 +80,12 @@ def create_app(
             return "--"
 
     def format_datetime(ts: float | int | None) -> str:
-        """Unix timestamp -> full date/time string for tooltips."""
+        """Unix timestamp -> full local date/time string for tooltips."""
         if not ts:
             return ""
         try:
-            dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
-            return dt.strftime("%Y-%m-%d %H:%M:%S UTC")
+            dt = datetime.fromtimestamp(float(ts))
+            return dt.strftime("%Y-%m-%d %H:%M:%S")
         except (ValueError, OSError):
             return ""
 
