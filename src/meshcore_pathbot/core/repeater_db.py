@@ -113,6 +113,28 @@ class RepeaterDB:
                 return True
         return False
 
+    def get_collisions(self) -> list[dict]:
+        """Return groups of repeaters that share the same prefix.
+
+        Each group is a dict: {"prefix": "fb", "repeaters": [entry, entry, ...]}
+        Only includes prefixes with 2+ repeaters. Sorted by prefix.
+        """
+        from collections import defaultdict
+
+        by_prefix: dict[str, list[dict]] = defaultdict(list)
+        for node in self.nodes.values():
+            by_prefix[node["prefix"]].append(node)
+
+        groups = []
+        for prefix in sorted(by_prefix):
+            entries = by_prefix[prefix]
+            if len(entries) >= 2:
+                groups.append({
+                    "prefix": prefix,
+                    "repeaters": sorted(entries, key=lambda n: n.get("name", "")),
+                })
+        return groups
+
     @property
     def count(self) -> int:
         return len(self.nodes)
