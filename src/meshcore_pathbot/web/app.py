@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import time
-
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
@@ -62,21 +60,13 @@ def create_app(
             return "--"
 
     def format_relative(ts: float | int | None) -> str:
-        """Unix timestamp -> '2m ago', '3h ago', '1d ago', etc."""
+        """Unix timestamp -> local date/time in dd/mm/yy HH:MM:SS format."""
         if not ts:
             return "--"
         try:
-            diff = time.time() - float(ts)
-            if diff < 0:
-                return "just now"
-            if diff < 60:
-                return f"{int(diff)}s ago"
-            if diff < 3600:
-                return f"{int(diff // 60)}m ago"
-            if diff < 86400:
-                return f"{int(diff // 3600)}h ago"
-            return f"{int(diff // 86400)}d ago"
-        except (ValueError, TypeError):
+            dt = datetime.fromtimestamp(float(ts))
+            return dt.strftime("%d/%m/%y %H:%M:%S")
+        except (ValueError, OSError):
             return "--"
 
     def format_datetime(ts: float | int | None) -> str:
