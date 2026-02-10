@@ -1,10 +1,11 @@
-"""Persistent JSON-backed repeater database."""
+"""SQLite-backed repeater database."""
 
 from __future__ import annotations
 
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 from pathlib import Path
 
@@ -12,6 +13,7 @@ log = logging.getLogger("pathbot.repeater_db")
 
 # MeshCore ADV_TYPE for repeaters
 ADV_TYPE_REPEATER = 2
+STALE_REPEATER_AGE_DAYS = 7
 
 
 class RepeaterDB:
@@ -22,78 +24,186 @@ class RepeaterDB:
     """
 
     def __init__(self, filepath: Path):
-        self.filepath = filepath
+        self.legacy_filepath = filepath
+        self.filepath = filepath.with_suffix(".db") if filepath.suffix == ".json" else filepath
         self.nodes: dict[str, dict] = {}
         self._lock = asyncio.Lock()
+        self._conn: sqlite3.Connection | None = None
 
     async def load(self) -> None:
-        """Load repeater data from the JSON file."""
+        """Load repeater data from SQLite, migrating legacy JSON if needed."""
         async with self._lock:
+            self.filepath.parent.mkdir(parents=True, exist_ok=True)
+            self._init_db_sync()
+            self._migrate_legacy_json_sync()
             self._load_sync()
 
+    def _init_db_sync(self) -> None:
+        """Open database connection and ensure schema exists."""
+        if self._conn is None:
+            self._conn = sqlite3.connect(self.filepath)
+            self._conn.row_factory = sqlite3.Row
+
+        self._conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS repeaters (
+                public_key TEXT PRIMARY KEY,
+                prefix TEXT NOT NULL,
+                name TEXT NOT NULL,
+                lat REAL NOT NULL DEFAULT 0,
+                lon REAL NOT NULL DEFAULT 0,
+                type INTEGER NOT NULL,
+                last_seen INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_repeaters_prefix ON repeaters(prefix);
+            CREATE INDEX IF NOT EXISTS idx_repeaters_last_seen ON repeaters(last_seen);
+            """
+        )
+        self._conn.commit()
+
+    def _migrate_legacy_json_sync(self) -> None:
+        """Migrate data from legacy JSON file when present."""
+        if self.legacy_filepath.suffix != ".json" or not self.legacy_filepath.exists():
+            return
+
+        cur = self._conn.execute("SELECT COUNT(1) FROM repeaters")
+        row_count = cur.fetchone()[0]
+        if row_count > 0:
+            return
+
+        try:
+            with open(self.legacy_filepath, "r") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            log.warning(f"Could not migrate legacy repeater JSON: {e}")
+            return
+
+        migrated = 0
+        for public_key, node in dict(data).items():
+            normalized = self._normalize_entry({**node, "public_key": public_key})
+            self._upsert_sync(normalized)
+            migrated += 1
+
+        if migrated:
+            log.info(
+                f"Migrated {migrated} repeaters from legacy JSON "
+                f"{self.legacy_filepath} -> {self.filepath}"
+            )
+
     def _load_sync(self) -> None:
-        """Synchronous load (call within lock or at init)."""
-        if self.filepath.exists():
-            try:
-                with open(self.filepath, "r") as f:
-                    data = json.load(f)
-                self.nodes = dict(data)
-                log.info(f"Loaded {len(self.nodes)} repeaters from {self.filepath}")
-            except (json.JSONDecodeError, IOError) as e:
-                log.warning(f"Could not load repeaters file: {e}")
-                self.nodes = {}
-        else:
-            log.info("No existing repeaters file, starting fresh")
+        """Load all repeaters from SQLite into in-memory cache."""
+        rows = self._conn.execute(
+            "SELECT public_key, prefix, name, lat, lon, type, last_seen FROM repeaters"
+        ).fetchall()
+        self.nodes = {row["public_key"]: dict(row) for row in rows}
+        log.info(f"Loaded {len(self.nodes)} repeaters from {self.filepath}")
 
     async def save(self) -> None:
-        """Persist repeater data to the JSON file."""
-        async with self._lock:
-            self._save_sync()
+        """No-op for API compatibility; updates are persisted immediately."""
+        return
 
-    def _save_sync(self) -> None:
-        """Synchronous save (call within lock)."""
-        try:
-            with open(self.filepath, "w") as f:
-                json.dump(self.nodes, f, indent=2)
-        except IOError as e:
-            log.error(f"Could not save repeaters file: {e}")
+    @staticmethod
+    def _normalize_timestamp(raw: int | float | None) -> int:
+        if raw is None:
+            return int(time.time())
+        ts = int(raw)
+        if ts > 10_000_000_000:
+            ts //= 1000
+        if ts <= 0:
+            return int(time.time())
+        return ts
 
-    async def update_from_contact(self, contact: dict) -> dict | None:
-        """Update DB from a contact dict. Returns the entry if it was a repeater, else None."""
+    def _normalize_entry(self, contact: dict) -> dict:
+        """Normalize contact payload into repeater DB entry."""
         pub_key = contact.get("public_key", "")
-        adv_type = contact.get("type", contact.get("adv_type", 0))
-        name = contact.get("adv_name", "unknown")
-        lat = contact.get("adv_lat", 0.0)
-        lon = contact.get("adv_lon", 0.0)
+        adv_type = int(contact.get("type", contact.get("adv_type", 0)))
+        name = str(contact.get("adv_name", contact.get("name", "unknown")))
+        lat = float(contact.get("adv_lat", contact.get("lat", 0.0)))
+        lon = float(contact.get("adv_lon", contact.get("lon", 0.0)))
+        last_seen = self._normalize_timestamp(contact.get("last_seen"))
 
-        if not pub_key or len(pub_key) < 2:
-            return None
-
-        if adv_type != ADV_TYPE_REPEATER:
-            return None
-
-        prefix = pub_key[:2].lower()
-        entry = {
+        return {
             "public_key": pub_key,
-            "prefix": prefix,
+            "prefix": pub_key[:2].lower(),
             "name": name,
             "lat": lat,
             "lon": lon,
             "type": adv_type,
-            "last_seen": int(time.time()),
+            "last_seen": last_seen,
         }
+
+    def _upsert_sync(self, entry: dict) -> None:
+        """Upsert a repeater entry into SQLite and cache."""
+        existing = self.nodes.get(entry["public_key"])
+        if existing:
+            entry["last_seen"] = max(existing.get("last_seen", 0), entry["last_seen"])
+
+        self._conn.execute(
+            """
+            INSERT INTO repeaters (public_key, prefix, name, lat, lon, type, last_seen)
+            VALUES (:public_key, :prefix, :name, :lat, :lon, :type, :last_seen)
+            ON CONFLICT(public_key) DO UPDATE SET
+                prefix=excluded.prefix,
+                name=excluded.name,
+                lat=excluded.lat,
+                lon=excluded.lon,
+                type=excluded.type,
+                last_seen=CASE
+                    WHEN excluded.last_seen > repeaters.last_seen
+                    THEN excluded.last_seen
+                    ELSE repeaters.last_seen
+                END
+            """,
+            entry,
+        )
+        self._conn.commit()
+
+        row = self._conn.execute(
+            "SELECT public_key, prefix, name, lat, lon, type, last_seen "
+            "FROM repeaters WHERE public_key = ?",
+            (entry["public_key"],),
+        ).fetchone()
+        self.nodes[entry["public_key"]] = dict(row)
+
+    async def update_from_contact(self, contact: dict) -> dict | None:
+        """Update DB from a contact dict. Returns entry if repeater, else None."""
+        pub_key = contact.get("public_key", "")
+        adv_type = contact.get("type", contact.get("adv_type", 0))
+
+        if not pub_key or len(pub_key) < 2:
+            return None
+
+        if int(adv_type) != ADV_TYPE_REPEATER:
+            return None
+
+        entry = self._normalize_entry(contact)
 
         async with self._lock:
             is_new = pub_key not in self.nodes
-            self.nodes[pub_key] = entry
-            self._save_sync()
+            self._upsert_sync(entry)
+            entry = self.nodes[pub_key]
 
         if is_new:
-            log.info(f"New repeater: {name} (prefix={prefix}, lat={lat}, lon={lon})")
+            log.info(
+                f"New repeater: {entry['name']} "
+                f"(prefix={entry['prefix']}, lat={entry['lat']}, lon={entry['lon']})"
+            )
         else:
-            log.debug(f"Updated repeater: {name} (prefix={prefix})")
+            log.debug(f"Updated repeater: {entry['name']} (prefix={entry['prefix']})")
 
         return entry
+
+    async def cleanup_stale(self, max_age_days: int = STALE_REPEATER_AGE_DAYS) -> int:
+        """Delete repeaters not seen in `max_age_days` days."""
+        cutoff = int(time.time()) - (max_age_days * 24 * 60 * 60)
+        async with self._lock:
+            cursor = self._conn.execute("DELETE FROM repeaters WHERE last_seen < ?", (cutoff,))
+            deleted = cursor.rowcount
+            if deleted:
+                self._conn.commit()
+                self._load_sync()
+            return deleted
 
     def get_by_prefix(self, prefix: str) -> list[dict]:
         """Get all repeaters matching a 1-byte hex prefix."""
@@ -107,11 +217,12 @@ class RepeaterDB:
     async def delete(self, public_key: str) -> bool:
         """Remove a repeater by public key. Returns True if it existed."""
         async with self._lock:
-            if public_key in self.nodes:
-                del self.nodes[public_key]
-                self._save_sync()
-                return True
-        return False
+            cursor = self._conn.execute("DELETE FROM repeaters WHERE public_key = ?", (public_key,))
+            existed = cursor.rowcount > 0
+            if existed:
+                self._conn.commit()
+                self.nodes.pop(public_key, None)
+            return existed
 
     def get_collisions(self) -> list[dict]:
         """Return groups of repeaters that share the same prefix.
