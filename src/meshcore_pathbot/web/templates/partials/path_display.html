@@ -11,15 +11,30 @@
             {% endif %}
         </span>
         {% if not loop.last %}
-        <span class="arrow">&rarr;</span>
+        <span class="arrow-group">
+            <span class="arrow">&rarr;</span>
+            {% set next_hop = hops[loop.index] %}
+            {% if next_hop.get('distance_from_prev') is not none %}
+            <span class="hop-distance">{{ next_hop.distance_from_prev }} km</span>
+            {% endif %}
+        </span>
         {% endif %}
         {% endfor %}
     </div>
     <footer>
         <small>
-            {{ hops | length }} hops |
-            Resolved: <code>{{ resolved_str }}</code> |
-            Raw: <code>{{ raw_str }}</code>
+            {{ hops | length }} hops
+            {% set distances = [] %}
+            {% for hop in hops %}
+                {% if hop.get('distance_from_prev') is not none %}
+                    {% if distances.append(hop.distance_from_prev) %}{% endif %}
+                {% endif %}
+            {% endfor %}
+            {% if distances %}
+            | Total: {{ "%.1f" | format(distances | sum) }} km
+            {% endif %}
+            | Resolved: <code>{{ resolved_str }}</code>
+            | Raw: <code>{{ raw_str }}</code>
         </small>
     </footer>
 </article>

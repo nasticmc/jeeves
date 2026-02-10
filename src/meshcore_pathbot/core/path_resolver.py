@@ -134,6 +134,20 @@ class PathResolver:
             hop["candidates"] = len(options)
             resolved.append(hop)
 
+        # Calculate hop-to-hop distances
+        for i in range(len(resolved)):
+            if i == 0:
+                resolved[i]["distance_from_prev"] = None
+            else:
+                prev = resolved[i - 1]
+                curr = resolved[i]
+                if has_location(prev) and has_location(curr):
+                    resolved[i]["distance_from_prev"] = round(
+                        haversine(prev["lat"], prev["lon"], curr["lat"], curr["lon"]), 1
+                    )
+                else:
+                    resolved[i]["distance_from_prev"] = None
+
         return resolved
 
     @staticmethod
