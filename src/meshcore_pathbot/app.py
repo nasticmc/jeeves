@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 
 import uvicorn
@@ -14,6 +15,21 @@ from .core.repeater_db import RepeaterDB
 from .events.bus import EventBus
 
 log = logging.getLogger("pathbot.app")
+
+
+async def _daily_db_cleanup(db: RepeaterDB) -> None:
+    """Run stale repeater cleanup once per day."""
+    while True:
+        try:
+            deleted = await db.cleanup_stale(max_age_days=7)
+            if deleted:
+                log.info(f"Daily repeater cleanup removed {deleted} stale entries")
+            else:
+                log.debug("Daily repeater cleanup found no stale entries")
+        except Exception as e:
+            log.warning(f"Daily repeater cleanup failed: {e}")
+
+        await asyncio.sleep(24 * 60 * 60)
 
 
 async def run(config: AppConfig) -> None:
@@ -28,6 +44,7 @@ async def run(config: AppConfig) -> None:
     await message_store.load()
 
     bot = PathBot(config, db, bus, message_store)
+    cleanup_task = asyncio.create_task(_daily_db_cleanup(db), name="daily-db-cleanup")
 
     if config.web.enabled:
         from .web.app import create_app
@@ -51,6 +68,9 @@ async def run(config: AppConfig) -> None:
         except (KeyboardInterrupt, asyncio.CancelledError):
             log.info("Shutting down...")
         finally:
+            cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cleanup_task
             await bot.stop()
     else:
         log.info("Web dashboard disabled, running bot only")
@@ -60,4 +80,7 @@ async def run(config: AppConfig) -> None:
         except (KeyboardInterrupt, asyncio.CancelledError):
             log.info("Shutting down...")
         finally:
+            cleanup_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await cleanup_task
             await bot.stop()

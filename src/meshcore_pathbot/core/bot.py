@@ -147,12 +147,26 @@ class PathBot:
             return
 
         contacts = result.payload
-        for key, contact in contacts.items():
-            if "public_key" not in contact:
-                contact["public_key"] = key
-            entry = await self.db.update_from_contact(contact)
-            if entry:
-                await self.bus.publish(AppEvent.REPEATER_UPDATE, entry)
+        contact = contacts.get(pub_key)
+
+        # Some backends key contacts by a non-public-key ID; fall back to scan.
+        if not contact:
+            for key, candidate in contacts.items():
+                candidate_key = candidate.get("public_key", key)
+                if candidate_key == pub_key:
+                    contact = candidate
+                    break
+
+        if not contact:
+            log.debug(f"Advert source {pub_key} not found in contacts payload")
+            return
+
+        if "public_key" not in contact:
+            contact["public_key"] = pub_key
+
+        entry = await self.db.update_from_contact(contact)
+        if entry:
+            await self.bus.publish(AppEvent.REPEATER_UPDATE, entry)
 
     @staticmethod
     def _parse_sender(data: dict) -> tuple[str, str]:

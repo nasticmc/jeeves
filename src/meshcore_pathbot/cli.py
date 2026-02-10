@@ -44,7 +44,7 @@ def build_parser() -> argparse.ArgumentParser:
         "-r", "--repeaters-file",
         type=Path,
         default=None,
-        help="Repeaters JSON file path",
+        help="Repeaters DB path (.db preferred; .json auto-migrates)",
     )
     parser.add_argument("-d", "--debug", action="store_true", help="Enable debug logging")
     parser.add_argument(

@@ -25,7 +25,7 @@ class BotConfig(BaseModel):
     """Bot behavior settings."""
 
     channel: int = Field(default=2, ge=0, le=7)
-    repeaters_file: Path = Path("repeaters.json")
+    repeaters_file: Path = Path("repeaters.db")
     ignore_list: list[str] = Field(default_factory=lambda: ["jeeves"])
 
 

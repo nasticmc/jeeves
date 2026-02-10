@@ -26,7 +26,7 @@ Connection (pick one):
 Options:
   -C, --config FILE     TOML config file
   -c, --channel N       Channel to listen on (default: 2)
-  -r, --repeaters-file  Repeaters JSON path
+  -r, --repeaters-file  Repeaters DB path (.db preferred)
   -i, --ignore NAME     Node names to ignore
   -d, --debug           Enable debug logging
   --no-web              Disable web dashboard
