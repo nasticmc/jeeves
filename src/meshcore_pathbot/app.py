@@ -38,8 +38,8 @@ async def run(config: AppConfig) -> None:
     db = RepeaterDB(config.bot.repeaters_file)
     await db.load()
 
-    # Message store lives alongside repeaters file
-    messages_path = config.bot.repeaters_file.parent / "messages.json"
+    # Message store lives alongside repeaters DB
+    messages_path = config.bot.repeaters_file.parent / "messages.db"
     message_store = MessageStore(messages_path)
     await message_store.load()
 
