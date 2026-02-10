@@ -136,10 +136,28 @@ class PathBot:
 
         log.info(f"Synced {count} contacts, {self.db.count} repeaters in DB")
 
+    @staticmethod
+    def _extract_advert_pub_key(payload: object) -> str | None:
+        """Extract a public key string from MeshCore advert payload variants."""
+        if isinstance(payload, str):
+            return payload
+
+        if isinstance(payload, dict):
+            for key_name in ("public_key", "pub_key", "sender", "node_id"):
+                value = payload.get(key_name)
+                if isinstance(value, str) and value:
+                    return value
+
+        return None
+
     async def _on_advert(self, event) -> None:
         """Handle incoming advertisement — update repeater DB."""
-        pub_key = event.payload
-        log.debug(f"Advert received from: {pub_key}")
+        pub_key = self._extract_advert_pub_key(event.payload)
+        log.debug(f"Advert received from: {event.payload}")
+
+        if not pub_key:
+            log.debug(f"Ignoring advert with unsupported payload type: {type(event.payload).__name__}")
+            return
 
         result = await self._mc.commands.get_contacts()
         if result.type == EventType.ERROR:
@@ -147,17 +165,23 @@ class PathBot:
             return
 
         contacts = result.payload
+        if not isinstance(contacts, dict):
+            log.warning(f"Unexpected contacts payload type: {type(contacts).__name__}")
+            return
+
         contact = contacts.get(pub_key)
 
         # Some backends key contacts by a non-public-key ID; fall back to scan.
         if not contact:
             for key, candidate in contacts.items():
+                if not isinstance(candidate, dict):
+                    continue
                 candidate_key = candidate.get("public_key", key)
                 if candidate_key == pub_key:
                     contact = candidate
                     break
 
-        if not contact:
+        if not isinstance(contact, dict):
             log.debug(f"Advert source {pub_key} not found in contacts payload")
             return
 
