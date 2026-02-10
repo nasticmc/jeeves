@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}Repeaters - PathBot{% endblock %}
+{% block content %}
+<h2>Repeater Database</h2>
+
+<p>
+    <small>
+        {{ stats.total }} repeaters |
+        {{ stats.unique_prefixes }} unique prefixes |
+        {{ stats.collisions }} collisions |
+        {{ stats.with_location }} with location
+    </small>
+</p>
+
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Prefix</th>
+            <th>Lat</th>
+            <th>Lon</th>
+            <th>Last Seen</th>
+            <th>Actions</th>
+        </tr>
+    </thead>
+    <tbody id="repeater-list">
+        {% for r in repeaters %}
+        {% include "partials/repeater_row.html" %}
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not repeaters %}
+<p><small>No repeaters discovered yet. They will appear as adverts are received.</small></p>
+{% endif %}
+{% endblock %}

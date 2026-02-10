@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Dashboard - PathBot{% endblock %}
+{% block content %}
+<h2>Dashboard</h2>
+
+<div class="grid">
+    <article>
+        <header>Connection</header>
+        <p>
+            <span class="status-dot {% if connected %}status-ok{% else %}status-err{% endif %}"></span>
+            {% if connected %}Connected{% else %}Disconnected{% endif %}
+        </p>
+        <p><small>Channel: {{ channel }}</small></p>
+    </article>
+    <article>
+        <header>Messages</header>
+        <p><strong>{{ stats.messages_in }}</strong> in / <strong>{{ stats.messages_out }}</strong> out</p>
+        <p><small>{{ stats.commands_processed }} commands processed</small></p>
+    </article>
+    <article>
+        <header>Repeater DB</header>
+        <p><strong>{{ db_stats.total }}</strong> repeaters</p>
+        <p><small>{{ db_stats.with_location }} with location | {{ db_stats.collisions }} prefix collisions</small></p>
+    </article>
+</div>
+
+<div hx-ext="sse" sse-connect="/api/stats/stream">
+    <article>
+        <header>Live Activity</header>
+        <div id="live-stats" sse-swap="stats_update" hx-swap="innerHTML">
+            <p>Waiting for activity...</p>
+        </div>
+    </article>
+</div>
+{% endblock %}

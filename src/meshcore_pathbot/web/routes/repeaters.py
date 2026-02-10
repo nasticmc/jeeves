@@ -1,0 +1,41 @@
+"""Repeaters route — database viewer/editor."""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, Request
+from fastapi.responses import HTMLResponse
+
+from ...events.bus import EventBus
+from ...events.types import AppEvent
+from ..dependencies import get_bus, get_db
+
+router = APIRouter()
+
+
+@router.get("/repeaters")
+async def repeaters_page(
+    request: Request,
+    db=Depends(get_db),
+):
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        "repeaters.html",
+        {
+            "request": request,
+            "repeaters": db.get_all(),
+            "stats": db.stats(),
+        },
+    )
+
+
+@router.delete("/repeaters/{public_key}")
+async def delete_repeater(
+    public_key: str,
+    db=Depends(get_db),
+    bus: EventBus = Depends(get_bus),
+):
+    deleted = await db.delete(public_key)
+    if deleted:
+        await bus.publish(AppEvent.REPEATER_DELETE, {"public_key": public_key})
+    # Return empty content so htmx removes the row
+    return HTMLResponse("")

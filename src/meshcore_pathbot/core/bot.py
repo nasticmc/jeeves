@@ -1,0 +1,218 @@
+"""PathBot: MeshCore connection, event handling, and command dispatch."""
+
+from __future__ import annotations
+
+import logging
+import time
+from dataclasses import dataclass, field
+
+from meshcore import EventType, MeshCore
+
+from ..config.schema import AppConfig
+from ..events.bus import EventBus
+from ..events.types import AppEvent
+from .path_resolver import PathResolver
+from .repeater_db import RepeaterDB
+
+log = logging.getLogger("pathbot.bot")
+
+
+@dataclass
+class BotStats:
+    """Mutable statistics container."""
+
+    start_time: float = field(default_factory=time.time)
+    messages_in: int = 0
+    messages_out: int = 0
+    commands_processed: int = 0
+    errors: int = 0
+    last_message_at: float | None = None
+
+    @property
+    def uptime_seconds(self) -> float:
+        return time.time() - self.start_time
+
+    def to_dict(self) -> dict:
+        return {
+            "uptime_seconds": int(self.uptime_seconds),
+            "messages_in": self.messages_in,
+            "messages_out": self.messages_out,
+            "commands_processed": self.commands_processed,
+            "errors": self.errors,
+            "last_message_at": self.last_message_at,
+        }
+
+
+class PathBot:
+    """Core bot: connects to MeshCore, handles trace/ping commands."""
+
+    def __init__(self, config: AppConfig, db: RepeaterDB, bus: EventBus):
+        self.config = config
+        self.db = db
+        self.bus = bus
+        self.resolver = PathResolver(db)
+        self.stats = BotStats()
+        self._mc: MeshCore | None = None
+
+    @property
+    def is_connected(self) -> bool:
+        return self._mc is not None
+
+    async def start(self) -> None:
+        """Connect to MeshCore, sync contacts, subscribe to events, start auto-fetching."""
+        log.info("Starting PathBot...")
+
+        self._mc = await self._connect()
+        await self.bus.publish(AppEvent.BOT_CONNECTED)
+
+        await self._sync_contacts()
+
+        self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
+        self._mc.subscribe(
+            EventType.CHANNEL_MSG_RECV,
+            self._on_channel_msg,
+            attribute_filters={"channel_idx": self.config.bot.channel},
+        )
+
+        await self._mc.start_auto_message_fetching()
+
+        log.info(
+            f"PathBot running on channel {self.config.bot.channel} | "
+            f"Repeater DB: {self.db.stats_str()}"
+        )
+
+    async def stop(self) -> None:
+        """Gracefully disconnect from MeshCore."""
+        if self._mc:
+            try:
+                await self._mc.stop_auto_message_fetching()
+                await self._mc.disconnect()
+            except Exception as e:
+                log.warning(f"Error during disconnect: {e}")
+            self._mc = None
+            await self.bus.publish(AppEvent.BOT_DISCONNECTED)
+            log.info("Disconnected from MeshCore")
+
+    async def _connect(self) -> MeshCore:
+        """Create MeshCore connection based on config."""
+        conn = self.config.connection
+        debug = self.config.logging.level == "DEBUG"
+
+        log.info(f"Connecting via {conn.type}...")
+
+        if conn.type == "serial":
+            if not conn.serial_port:
+                raise ValueError("Serial port not configured")
+            return await MeshCore.create_serial(conn.serial_port, conn.serial_baud, debug=debug)
+        elif conn.type == "tcp":
+            if not conn.tcp_host:
+                raise ValueError("TCP host not configured")
+            return await MeshCore.create_tcp(conn.tcp_host, conn.tcp_port, debug=debug)
+        elif conn.type == "ble":
+            if conn.ble_address:
+                return await MeshCore.create_ble(conn.ble_address, debug=debug)
+            else:
+                return await MeshCore.create_ble(debug=debug)
+        else:
+            raise ValueError(f"Unknown connection type: {conn.type}")
+
+    async def _sync_contacts(self) -> None:
+        """Pull contacts list and seed repeater DB."""
+        log.info("Syncing contacts...")
+        result = await self._mc.commands.get_contacts()
+        if result.type == EventType.ERROR:
+            log.error(f"Failed to get contacts: {result.payload}")
+            return
+
+        contacts = result.payload
+        count = 0
+        for key, contact in contacts.items():
+            if "public_key" not in contact:
+                contact["public_key"] = key
+            await self.db.update_from_contact(contact)
+            count += 1
+
+        log.info(f"Synced {count} contacts, {self.db.count} repeaters in DB")
+
+    async def _on_advert(self, event) -> None:
+        """Handle incoming advertisement — update repeater DB."""
+        pub_key = event.payload
+        log.debug(f"Advert received from: {pub_key}")
+
+        result = await self._mc.commands.get_contacts()
+        if result.type == EventType.ERROR:
+            log.warning(f"Could not refresh contacts after advert: {result.payload}")
+            return
+
+        contacts = result.payload
+        for key, contact in contacts.items():
+            if "public_key" not in contact:
+                contact["public_key"] = key
+            entry = await self.db.update_from_contact(contact)
+            if entry:
+                await self.bus.publish(AppEvent.REPEATER_UPDATE, entry)
+
+    async def _on_channel_msg(self, event) -> None:
+        """Handle incoming channel message — check for trace or ping."""
+        data = event.payload
+        text = data.get("text", "")
+        sender = data.get("sender_name", data.get("pubkey_prefix", "???"))
+
+        log.debug(f"Channel msg from {sender}: {text}")
+
+        self.stats.messages_in += 1
+        self.stats.last_message_at = time.time()
+
+        await self.bus.publish(
+            AppEvent.MSG_IN,
+            {"sender": sender, "text": text, "timestamp": time.time()},
+        )
+
+        # Check ignore list
+        sender_lower = sender.lower()
+        ignore_list = [n.lower() for n in self.config.bot.ignore_list]
+        if any(ignored in sender_lower for ignored in ignore_list):
+            log.debug(f"Ignoring message from {sender} (in ignore list)")
+            return
+
+        text_lower = text.lower()
+        is_trace = "trace" in text_lower
+        is_ping = "ping" in text_lower
+
+        if not is_trace and not is_ping:
+            return
+
+        log.info(f"{'Trace' if is_trace else 'Ping'} from {sender}")
+        self.stats.commands_processed += 1
+
+        raw_path = data.get("path", "")
+
+        # Build reply
+        if is_trace:
+            if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
+                resolved = self.resolver.resolve(raw_path)
+                reply = f"@[{sender}] {resolved}"
+            else:
+                reply = f"@[{sender}] rxed (no path data)"
+        else:
+            if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
+                raw_fmt = self.resolver.raw(raw_path)
+                reply = f"@[{sender}] {raw_fmt}"
+            else:
+                reply = f"@[{sender}] rxed"
+
+        log.info(f"Replying: {reply}")
+
+        result = await self._mc.commands.send_chan_msg(self.config.bot.channel, reply)
+        if result.type == EventType.ERROR:
+            log.error(f"Failed to send reply: {result.payload}")
+            self.stats.errors += 1
+            await self.bus.publish(AppEvent.ERROR, {"message": f"Send failed: {result.payload}"})
+            return
+
+        self.stats.messages_out += 1
+        await self.bus.publish(
+            AppEvent.MSG_OUT,
+            {"recipient": sender, "text": reply, "timestamp": time.time()},
+        )
+        await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())

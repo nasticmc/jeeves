@@ -1,0 +1,25 @@
+# MeshCore PathBot Configuration
+
+[connection]
+type = "serial"                    # "serial", "tcp", or "ble"
+serial_port = "/dev/ttyUSB0"       # Serial device path (Linux) or "COM3" (Windows)
+serial_baud = 115200
+# tcp_host = "192.168.1.100"
+# tcp_port = 5000
+# ble_address = "AA:BB:CC:DD:EE:FF"
+auto_reconnect = true
+max_reconnect_attempts = 10
+
+[bot]
+channel = 2                        # Channel to listen on (0-7)
+repeaters_file = "repeaters.json"  # Path to repeater database
+ignore_list = ["jeeves"]           # Node names to ignore (case-insensitive partial match)
+
+[web]
+enabled = true
+host = "0.0.0.0"
+port = 8075
+
+[logging]
+level = "INFO"
+# file = "/var/log/meshcore-pathbot.log"

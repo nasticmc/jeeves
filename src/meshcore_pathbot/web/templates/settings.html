@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Settings - PathBot{% endblock %}
+{% block content %}
+<h2>Settings</h2>
+
+<form hx-post="/settings" hx-target="#toast-container" hx-swap="afterbegin">
+    <fieldset>
+        <legend>Connection</legend>
+        <label>
+            Type
+            <select name="connection_type">
+                <option value="serial" {% if config.connection.type == 'serial' %}selected{% endif %}>Serial</option>
+                <option value="tcp" {% if config.connection.type == 'tcp' %}selected{% endif %}>TCP</option>
+                <option value="ble" {% if config.connection.type == 'ble' %}selected{% endif %}>BLE</option>
+            </select>
+        </label>
+        <div class="grid">
+            <label>
+                Serial Port
+                <input type="text" name="serial_port" value="{{ config.connection.serial_port or '' }}" placeholder="/dev/ttyUSB0">
+            </label>
+            <label>
+                Serial Baud
+                <input type="number" name="serial_baud" value="{{ config.connection.serial_baud }}">
+            </label>
+        </div>
+        <div class="grid">
+            <label>
+                TCP Host
+                <input type="text" name="tcp_host" value="{{ config.connection.tcp_host or '' }}" placeholder="192.168.1.100">
+            </label>
+            <label>
+                TCP Port
+                <input type="number" name="tcp_port" value="{{ config.connection.tcp_port }}">
+            </label>
+        </div>
+        <label>
+            BLE Address
+            <input type="text" name="ble_address" value="{{ config.connection.ble_address or '' }}" placeholder="AA:BB:CC:DD:EE:FF">
+        </label>
+    </fieldset>
+
+    <fieldset>
+        <legend>Bot</legend>
+        <div class="grid">
+            <label>
+                Channel
+                <input type="number" name="channel" value="{{ config.bot.channel }}" min="0" max="7">
+            </label>
+            <label>
+                Ignore List
+                <input type="text" name="ignore_list" value="{{ config.bot.ignore_list | join(', ') }}" placeholder="Comma-separated names">
+            </label>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Web Server</legend>
+        <div class="grid">
+            <label>
+                Host
+                <input type="text" name="web_host" value="{{ config.web.host }}">
+            </label>
+            <label>
+                Port
+                <input type="number" name="web_port" value="{{ config.web.port }}" min="1" max="65535">
+            </label>
+        </div>
+    </fieldset>
+
+    <fieldset>
+        <legend>Logging</legend>
+        <label>
+            Level
+            <select name="log_level">
+                {% for lvl in ["DEBUG", "INFO", "WARNING", "ERROR"] %}
+                <option value="{{ lvl }}" {% if config.logging.level == lvl %}selected{% endif %}>{{ lvl }}</option>
+                {% endfor %}
+            </select>
+        </label>
+    </fieldset>
+
+    <button type="submit">Save Settings</button>
+</form>
+
+{% if not config.config_path %}
+<p><small>No config file path set. Start with <code>--config path/to/config.toml</code> to enable saving.</small></p>
+{% endif %}
+{% endblock %}

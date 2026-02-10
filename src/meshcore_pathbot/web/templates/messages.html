@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Messages - PathBot{% endblock %}
+{% block content %}
+<h2>Live Message Feed</h2>
+
+<p><small>{{ stats.messages_in }} received / {{ stats.messages_out }} sent</small></p>
+
+<div hx-ext="sse" sse-connect="/api/messages/stream">
+    <table role="grid">
+        <thead>
+            <tr>
+                <th>Time</th>
+                <th>Dir</th>
+                <th>From/To</th>
+                <th>Message</th>
+            </tr>
+        </thead>
+        <tbody id="message-list" sse-swap="msg_in" hx-swap="afterbegin">
+        </tbody>
+    </table>
+</div>
+
+<p><small>Messages appear in real-time as they are received and sent.</small></p>
+{% endblock %}
