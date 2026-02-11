@@ -1,0 +1,8 @@
+<ul>
+    <li><strong>PathBot <small>(Guest)</small></strong></li>
+</ul>
+<ul>
+    <li><a href="/repeaters" {% if request.url.path == "/" or request.url.path == "/repeaters" %}aria-current="page"{% endif %}>Repeaters</a></li>
+    <li><a href="/overlaps" {% if request.url.path == "/overlaps" %}aria-current="page"{% endif %}>Overlaps</a></li>
+    <li><a href="/paths" {% if request.url.path == "/paths" %}aria-current="page"{% endif %}>Paths</a></li>
+</ul>

@@ -44,6 +44,9 @@ async def save_settings(
     bot_lon: float = Form(0.0),
     web_host: str = Form("0.0.0.0"),
     web_port: int = Form(8075),
+    guest_web_enabled: str = Form(""),
+    guest_web_host: str = Form("0.0.0.0"),
+    guest_web_port: int = Form(8076),
     log_level: str = Form("INFO"),
 ):
     templates = request.app.state.templates
@@ -65,6 +68,9 @@ async def save_settings(
     config.bot.lon = bot_lon
     config.web.host = web_host
     config.web.port = web_port
+    config.guest_web.enabled = guest_web_enabled == "true"
+    config.guest_web.host = guest_web_host
+    config.guest_web.port = guest_web_port
     config.logging.level = log_level
 
     # Save to file if a config path is set
