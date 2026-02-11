@@ -52,6 +52,17 @@
                 <input type="text" name="ignore_list" value="{{ config.bot.ignore_list | join(', ') }}" placeholder="Comma-separated names">
             </label>
         </div>
+        <div class="grid">
+            <label>
+                Home Repeater Name
+                <input type="text" name="home_repeater_name" value="{{ config.bot.home_repeater_name }}" placeholder="e.g. VIC-HP-EDG-01">
+            </label>
+            <label>
+                Home Repeater Prefix
+                <input type="text" name="home_repeater_prefix" value="{{ config.bot.home_repeater_prefix }}" placeholder="e.g. 7a" maxlength="2" pattern="[0-9a-fA-F]{0,2}">
+            </label>
+        </div>
+        <small>If set, any matching prefix in the last 2 hops is resolved as the home repeater.</small>
     </fieldset>
 
     <fieldset>

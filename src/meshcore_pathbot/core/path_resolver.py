@@ -3,16 +3,34 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 from .geo import has_location, haversine
 from .repeater_db import RepeaterDB
+
+if TYPE_CHECKING:
+    from ..config.schema import AppConfig
 
 
 class PathResolver:
     """Resolve raw hex path strings into human-readable repeater names."""
 
-    def __init__(self, db: RepeaterDB):
+    def __init__(self, db: RepeaterDB, config: AppConfig | None = None):
         self.db = db
+        self._config = config
+
+    def _is_home_repeater(self, prefix: str, index: int, total_hops: int) -> bool:
+        """Check if a hop should be resolved as the home repeater.
+
+        Returns True when the prefix matches the configured home repeater
+        and the hop is within the last 2 positions of the path.
+        """
+        if not self._config:
+            return False
+        hr_prefix = self._config.bot.home_repeater_prefix.lower()
+        if not hr_prefix or not self._config.bot.home_repeater_name:
+            return False
+        return prefix.lower() == hr_prefix and index >= total_hops - 2
 
     @staticmethod
     def normalize_path(raw: str) -> str:
@@ -48,14 +66,22 @@ class PathResolver:
 
         # Find all candidates for each hop
         candidates = []
-        for p in prefixes:
-            matches = self.db.get_by_prefix(p)
-            if not matches:
+        home_hits: set[int] = set()
+        for idx, p in enumerate(prefixes):
+            if self._is_home_repeater(p, idx, hop_count):
+                hr_name = self._config.bot.home_repeater_name
                 candidates.append(
-                    [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0}]
+                    [{"prefix": p, "name": hr_name, "lat": 0, "lon": 0}]
                 )
+                home_hits.add(idx)
             else:
-                candidates.append(matches)
+                matches = self.db.get_by_prefix(p)
+                if not matches:
+                    candidates.append(
+                        [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0}]
+                    )
+                else:
+                    candidates.append(matches)
 
         # Resolve ambiguous hops using geographic proximity
         resolved = []
@@ -92,7 +118,7 @@ class PathResolver:
         parts = []
         for i, node in enumerate(resolved):
             name = node["name"]
-            if len(candidates[i]) > 1:
+            if i not in home_hits and len(candidates[i]) > 1:
                 name += "?"
             parts.append(name)
 
@@ -106,18 +132,27 @@ class PathResolver:
             return []
 
         prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
+        hop_count = len(prefixes)
 
         candidates = []
-        for p in prefixes:
-            matches = self.db.get_by_prefix(p)
-            if not matches:
+        home_hits: set[int] = set()
+        for idx, p in enumerate(prefixes):
+            if self._is_home_repeater(p, idx, hop_count):
+                hr_name = self._config.bot.home_repeater_name
                 candidates.append(
-                    [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0, "resolved": False}]
+                    [{"prefix": p, "name": hr_name, "lat": 0, "lon": 0, "resolved": True}]
                 )
+                home_hits.add(idx)
             else:
-                for m in matches:
-                    m["resolved"] = True
-                candidates.append(matches)
+                matches = self.db.get_by_prefix(p)
+                if not matches:
+                    candidates.append(
+                        [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0, "resolved": False}]
+                    )
+                else:
+                    for m in matches:
+                        m["resolved"] = True
+                    candidates.append(matches)
 
         resolved = []
         for i, options in enumerate(candidates):
@@ -149,7 +184,7 @@ class PathResolver:
                 best = min(options, key=score)
 
             hop = dict(best)
-            hop["ambiguous"] = True
+            hop["ambiguous"] = i not in home_hits
             hop["candidates"] = len(options)
             resolved.append(hop)
 
@@ -191,15 +226,22 @@ class PathResolver:
             return ""
 
         prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
+        hop_count = len(prefixes)
 
         # Find all candidates for each prefix
         candidates = []
-        for p in prefixes:
-            matches = self.db.get_by_prefix(p)
-            if not matches:
-                candidates.append([{"prefix": p, "name": "?", "lat": 0, "lon": 0}])
+        home_hits: set[int] = set()
+        for idx, p in enumerate(prefixes):
+            if self._is_home_repeater(p, idx, hop_count):
+                hr_name = self._config.bot.home_repeater_name
+                candidates.append([{"prefix": p, "name": hr_name, "lat": 0, "lon": 0}])
+                home_hits.add(idx)
             else:
-                candidates.append(matches)
+                matches = self.db.get_by_prefix(p)
+                if not matches:
+                    candidates.append([{"prefix": p, "name": "?", "lat": 0, "lon": 0}])
+                else:
+                    candidates.append(matches)
 
         # Disambiguate using geographic proximity (same logic as resolve)
         resolved = []
@@ -236,7 +278,7 @@ class PathResolver:
         for i, node in enumerate(resolved):
             prefix = prefixes[i]
             name = node["name"]
-            if len(candidates[i]) > 1:
+            if i not in home_hits and len(candidates[i]) > 1:
                 name += "?"
             parts.append(f"{prefix}={name}")
 
