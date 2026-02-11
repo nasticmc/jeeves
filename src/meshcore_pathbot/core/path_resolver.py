@@ -32,6 +32,15 @@ class PathResolver:
             return False
         return prefix.lower() == hr_prefix and index >= total_hops - 2
 
+    def _bot_location(self) -> dict | None:
+        """Return a ref-point dict for the bot's configured location, or None."""
+        if not self._config:
+            return None
+        lat, lon = self._config.bot.lat, self._config.bot.lon
+        if lat == 0.0 and lon == 0.0:
+            return None
+        return {"lat": lat, "lon": lon}
+
     @staticmethod
     def normalize_path(raw: str) -> str:
         """Normalize a path string to a plain hex string.
@@ -84,6 +93,7 @@ class PathResolver:
                     candidates.append(matches)
 
         # Resolve ambiguous hops using geographic proximity
+        bot_loc = self._bot_location()
         resolved = []
         for i, options in enumerate(candidates):
             if len(options) == 1:
@@ -97,6 +107,9 @@ class PathResolver:
             if i + 1 < len(candidates) and len(candidates[i + 1]) == 1:
                 if has_location(candidates[i + 1][0]):
                     ref_points.append(candidates[i + 1][0])
+            # Bot location acts as the implicit endpoint after the last hop
+            if i == len(candidates) - 1 and bot_loc:
+                ref_points.append(bot_loc)
 
             if not ref_points:
                 best = max(options, key=lambda o: o.get("last_seen", 0))
@@ -154,6 +167,7 @@ class PathResolver:
                         m["resolved"] = True
                     candidates.append(matches)
 
+        bot_loc = self._bot_location()
         resolved = []
         for i, options in enumerate(candidates):
             if len(options) == 1:
@@ -168,6 +182,8 @@ class PathResolver:
             if i + 1 < len(candidates) and len(candidates[i + 1]) == 1:
                 if has_location(candidates[i + 1][0]):
                     ref_points.append(candidates[i + 1][0])
+            if i == len(candidates) - 1 and bot_loc:
+                ref_points.append(bot_loc)
 
             if not ref_points:
                 best = max(options, key=lambda o: o.get("last_seen", 0))
@@ -244,6 +260,7 @@ class PathResolver:
                     candidates.append(matches)
 
         # Disambiguate using geographic proximity (same logic as resolve)
+        bot_loc = self._bot_location()
         resolved = []
         for i, options in enumerate(candidates):
             if len(options) == 1:
@@ -256,6 +273,8 @@ class PathResolver:
             if i + 1 < len(candidates) and len(candidates[i + 1]) == 1:
                 if has_location(candidates[i + 1][0]):
                     ref_points.append(candidates[i + 1][0])
+            if i == len(candidates) - 1 and bot_loc:
+                ref_points.append(bot_loc)
 
             if not ref_points:
                 best = max(options, key=lambda o: o.get("last_seen", 0))

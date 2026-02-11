@@ -63,6 +63,17 @@
             </label>
         </div>
         <small>If set, any matching prefix in the last 2 hops is resolved as the home repeater.</small>
+        <div class="grid">
+            <label>
+                Bot Latitude
+                <input type="number" name="bot_lat" value="{{ config.bot.lat }}" step="any" placeholder="e.g. -37.8136">
+            </label>
+            <label>
+                Bot Longitude
+                <input type="number" name="bot_lon" value="{{ config.bot.lon }}" step="any" placeholder="e.g. 144.9631">
+            </label>
+        </div>
+        <small>Bot location helps disambiguate repeaters with colliding prefixes.</small>
     </fieldset>
 
     <fieldset>

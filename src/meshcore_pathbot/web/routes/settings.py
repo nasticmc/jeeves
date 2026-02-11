@@ -40,6 +40,8 @@ async def save_settings(
     ignore_list: str = Form(""),
     home_repeater_name: str = Form(""),
     home_repeater_prefix: str = Form(""),
+    bot_lat: float = Form(0.0),
+    bot_lon: float = Form(0.0),
     web_host: str = Form("0.0.0.0"),
     web_port: int = Form(8075),
     log_level: str = Form("INFO"),
@@ -59,6 +61,8 @@ async def save_settings(
     ]
     config.bot.home_repeater_name = home_repeater_name.strip()
     config.bot.home_repeater_prefix = home_repeater_prefix.strip().lower()
+    config.bot.lat = bot_lat
+    config.bot.lon = bot_lon
     config.web.host = web_host
     config.web.port = web_port
     config.logging.level = log_level
