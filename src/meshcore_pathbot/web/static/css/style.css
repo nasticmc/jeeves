@@ -161,6 +161,15 @@
     }
 }
 
+/* User path search results */
+.user-path-entry {
+    padding: 8px 0;
+}
+
+.user-path-entry .path-chain {
+    padding: 8px 0;
+}
+
 /* Table tweaks */
 table td small {
     opacity: 0.8;

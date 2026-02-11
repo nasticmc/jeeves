@@ -209,6 +209,18 @@ class MessageStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_unique_peers(self) -> list[str]:
+        """Return a sorted list of unique peer names that have sent messages."""
+        rows = self._conn.execute(
+            """
+            SELECT DISTINCT peer
+            FROM messages
+            WHERE direction = 'in' AND peer != ''
+            ORDER BY peer ASC
+            """
+        ).fetchall()
+        return [str(row["peer"]) for row in rows]
+
     def get_paths_for_peer(self, peer: str) -> list[str]:
         """Return unique raw path hex strings seen from a given peer.
 
