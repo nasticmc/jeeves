@@ -27,6 +27,10 @@ class BotConfig(BaseModel):
     channel: int = Field(default=2, ge=0, le=7)
     repeaters_file: Path = Path("repeaters.db")
     ignore_list: list[str] = Field(default_factory=lambda: ["jeeves"])
+    home_repeater_name: str = ""
+    home_repeater_prefix: str = ""
+    lat: float = 0.0
+    lon: float = 0.0
 
 
 class WebConfig(BaseModel):

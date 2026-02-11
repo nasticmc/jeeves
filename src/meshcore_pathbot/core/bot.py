@@ -98,7 +98,7 @@ class PathBot:
         self.db = db
         self.bus = bus
         self.message_store = message_store
-        self.resolver = PathResolver(db)
+        self.resolver = PathResolver(db, config)
         self.stats = BotStats()
         self._mc: MeshCore | None = None
         self._latest_rx_path: dict[str, Any] = {}
