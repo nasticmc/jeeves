@@ -8,18 +8,60 @@ from dataclasses import dataclass, field
 
 from meshcore import EventType, MeshCore
 
+from typing import Any
+
 from ..config.schema import AppConfig
 from ..events.bus import EventBus
 from ..events.types import AppEvent
-from . import _reader_patch
 from .message_store import MessageStore
 from .path_resolver import PathResolver
 from .repeater_db import RepeaterDB
 
-# Fix meshcore channel message parsing to extract path bytes.
-_reader_patch.apply()
-
 log = logging.getLogger("pathbot.bot")
+
+
+def parse_rx_log_data(payload: Any) -> dict[str, Any]:
+    """Parse RX_LOG event payload to extract path details.
+
+    The payload hex format is:
+      byte 0: header
+      byte 1: path_len
+      next path_len bytes: path node prefixes
+    """
+    result: dict[str, Any] = {}
+
+    hex_str = None
+    if isinstance(payload, dict):
+        hex_str = payload.get("payload") or payload.get("raw_hex")
+    elif isinstance(payload, (str, bytes)):
+        hex_str = payload
+
+    if not hex_str:
+        return result
+
+    if isinstance(hex_str, bytes):
+        hex_str = hex_str.hex()
+
+    hex_str = str(hex_str).lower().replace(" ", "")
+
+    if len(hex_str) < 4:
+        return result
+
+    try:
+        path_len = int(hex_str[2:4], 16)
+    except ValueError:
+        return result
+
+    result["path_len"] = path_len
+
+    path_start = 4
+    path_end = path_start + (path_len * 2)
+
+    if len(hex_str) < path_end:
+        return result
+
+    result["path"] = hex_str[path_start:path_end]
+    return result
 
 
 @dataclass
@@ -59,6 +101,7 @@ class PathBot:
         self.resolver = PathResolver(db)
         self.stats = BotStats()
         self._mc: MeshCore | None = None
+        self._latest_rx_path: dict[str, Any] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -74,6 +117,7 @@ class PathBot:
         await self._sync_contacts()
 
         self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
+        self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
         self._mc.subscribe(
             EventType.CHANNEL_MSG_RECV,
             self._on_channel_msg,
@@ -244,14 +288,25 @@ class PathBot:
 
         return f"@[{sender}] {len(seen)} paths: {', '.join(seen)}"
 
+    async def _on_rx_log_data(self, event) -> None:
+        """Handle RX_LOG_DATA — extract and cache path info for the next channel message."""
+        parsed = parse_rx_log_data(event.payload)
+        if parsed:
+            self._latest_rx_path = parsed
+            log.debug(f"RX log path: {parsed}")
+
     async def _on_channel_msg(self, event) -> None:
         """Handle incoming channel message — check for trace, ping, or paths."""
         data = event.payload
         sender, msg_body = self._parse_sender(data)
         text = data.get("text", "")
-        raw_path = data.get("path", "")
-        path_len = data.get("path_len", 0)
-        raw_rxlog = data.get("rxlog", "")
+
+        # Path data comes from the most recent RX_LOG_DATA event (radio log),
+        # not from the channel message payload itself.
+        rx = self._latest_rx_path
+        self._latest_rx_path = {}
+        raw_path = rx.get("path", "")
+        path_len = rx.get("path_len", data.get("path_len", 0))
 
         log.debug(f"Channel msg from {sender}: {text} (path={raw_path}, path_len={path_len})")
 
@@ -260,7 +315,7 @@ class PathBot:
         ts = time.time()
 
         await self.message_store.add(
-            "in", sender, text, ts, self.config.bot.channel, path=raw_path, rxlog=str(raw_rxlog),
+            "in", sender, text, ts, self.config.bot.channel, path=raw_path,
         )
         await self.bus.publish(
             AppEvent.MSG_IN,
