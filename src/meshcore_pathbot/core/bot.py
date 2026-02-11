@@ -246,9 +246,10 @@ class PathBot:
         sender, msg_body = self._parse_sender(data)
         text = data.get("text", "")
         raw_path = data.get("path", "")
+        path_len = data.get("path_len", 0)
         raw_rxlog = data.get("rxlog", "")
 
-        log.debug(f"Channel msg from {sender}: {text} (path={raw_path})")
+        log.debug(f"Channel msg from {sender}: {text} (path={raw_path}, path_len={path_len})")
 
         self.stats.messages_in += 1
         self.stats.last_message_at = time.time()
@@ -303,6 +304,8 @@ class PathBot:
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 resolved = self.resolver.resolve(raw_path)
                 reply = f"@[{sender}] {resolved}"
+            elif path_len > 0:
+                reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
             else:
                 reply = f"@[{sender}] rxed (no path data)"
         # Handle ping command
@@ -311,6 +314,8 @@ class PathBot:
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 raw_fmt = self.resolver.raw(raw_path)
                 reply = f"@[{sender}] {raw_fmt}"
+            elif path_len > 0:
+                reply = f"@[{sender}] rxed ({path_len} hops)"
             else:
                 reply = f"@[{sender}] rxed"
 
