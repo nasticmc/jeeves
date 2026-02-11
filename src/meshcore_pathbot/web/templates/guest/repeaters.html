@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Repeaters - PathBot (Guest){% endblock %}
+{% block content %}
+<h2>Repeater Database</h2>
+
+<p>
+    <small>
+        {{ stats.total }} repeaters |
+        {{ stats.unique_prefixes }} unique prefixes |
+        {{ stats.collisions }} collisions |
+        {{ stats.with_location }} with location
+    </small>
+</p>
+
+<input
+    type="search"
+    id="repeater-search"
+    placeholder="Search by name or prefix..."
+    aria-label="Search repeaters"
+>
+<small id="repeater-search-status" style="display:none; margin-top:-0.5rem; margin-bottom:0.5rem;"></small>
+
+<table role="grid">
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Prefix</th>
+            <th>Lat</th>
+            <th>Lon</th>
+            <th>Last Seen</th>
+        </tr>
+    </thead>
+    <tbody id="repeater-list">
+        {% for r in repeaters %}
+        {% include "partials/repeater_row.html" %}
+        {% endfor %}
+    </tbody>
+</table>
+
+{% if not repeaters %}
+<p><small>No repeaters discovered yet. They will appear as adverts are received.</small></p>
+{% endif %}
+
+<script>
+(function() {
+    var searchInput = document.getElementById('repeater-search');
+    var statusEl = document.getElementById('repeater-search-status');
+    if (!searchInput) return;
+
+    searchInput.addEventListener('input', function() {
+        var query = this.value.trim().toLowerCase();
+        var rows = document.querySelectorAll('#repeater-list tr');
+        var shown = 0;
+        var total = rows.length;
+
+        rows.forEach(function(row) {
+            var name = (row.cells[0] && row.cells[0].textContent || '').toLowerCase();
+            var prefix = (row.cells[1] && row.cells[1].textContent || '').toLowerCase();
+
+            if (!query || name.indexOf(query) !== -1 || prefix.indexOf(query) !== -1) {
+                row.style.display = '';
+                shown++;
+            } else {
+                row.style.display = 'none';
+            }
+        });
+
+        if (query) {
+            statusEl.textContent = 'Showing ' + shown + ' of ' + total + ' repeaters';
+            statusEl.style.display = 'block';
+        } else {
+            statusEl.style.display = 'none';
+        }
+    });
+})();
+</script>
+{% endblock %}

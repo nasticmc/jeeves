@@ -91,6 +91,25 @@
     </fieldset>
 
     <fieldset>
+        <legend>Guest Web Server</legend>
+        <label>
+            <input type="checkbox" name="guest_web_enabled" value="true" {% if config.guest_web.enabled %}checked{% endif %}>
+            Enable guest (read-only) web dashboard
+        </label>
+        <div class="grid">
+            <label>
+                Host
+                <input type="text" name="guest_web_host" value="{{ config.guest_web.host }}">
+            </label>
+            <label>
+                Port
+                <input type="number" name="guest_web_port" value="{{ config.guest_web.port }}" min="1" max="65535">
+            </label>
+        </div>
+        <small>The guest dashboard only exposes Repeaters, Overlaps, and Paths pages (read-only). Requires restart to take effect.</small>
+    </fieldset>
+
+    <fieldset>
         <legend>Logging</legend>
         <label>
             Level

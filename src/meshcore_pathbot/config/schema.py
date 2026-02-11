@@ -41,6 +41,14 @@ class WebConfig(BaseModel):
     port: int = Field(default=8075, ge=1, le=65535)
 
 
+class GuestWebConfig(BaseModel):
+    """Read-only guest web dashboard settings."""
+
+    enabled: bool = False
+    host: str = "0.0.0.0"
+    port: int = Field(default=8076, ge=1, le=65535)
+
+
 class LoggingConfig(BaseModel):
     """Logging settings."""
 
@@ -54,5 +62,6 @@ class AppConfig(BaseModel):
     connection: ConnectionConfig = Field(default_factory=ConnectionConfig)
     bot: BotConfig = Field(default_factory=BotConfig)
     web: WebConfig = Field(default_factory=WebConfig)
+    guest_web: GuestWebConfig = Field(default_factory=GuestWebConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     config_path: Path | None = None

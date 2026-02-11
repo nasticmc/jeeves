@@ -1,0 +1,45 @@
+{% if hops %}
+<article>
+    <header>Resolved Path</header>
+    <div class="path-chain">
+        {% for hop in hops %}
+        <span class="hop {% if hop.get('resolved', false) %}resolved{% else %}unresolved{% endif %} {% if hop.get('ambiguous', false) %}ambiguous{% endif %}"
+              title="{{ hop.get('public_key', hop.get('prefix', '')) }}">
+            {{ hop.name }}{% if hop.get('ambiguous', false) %}?{% endif %}
+            {% if hop.lat and hop.lon %}
+            <small>({{ "%.2f" | format(hop.lat) }}, {{ "%.2f" | format(hop.lon) }})</small>
+            {% endif %}
+        </span>
+        {% if not loop.last %}
+        <span class="arrow-group">
+            <span class="arrow">&rarr;</span>
+            {% set next_hop = hops[loop.index] %}
+            {% if next_hop.get('distance_from_prev') is not none %}
+            <span class="hop-distance">{{ next_hop.distance_from_prev }} km</span>
+            {% endif %}
+        </span>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <footer>
+        <small>
+            {{ hops | length }} hops
+            {% set distances = [] %}
+            {% for hop in hops %}
+                {% if hop.get('distance_from_prev') is not none %}
+                    {% if distances.append(hop.distance_from_prev) %}{% endif %}
+                {% endif %}
+            {% endfor %}
+            {% if distances %}
+            | Total: {{ "%.1f" | format(distances | sum) }} km
+            {% endif %}
+            | Resolved: <code>{{ resolved_str }}</code>
+            | Raw: <code>{{ raw_str }}</code>
+        </small>
+    </footer>
+</article>
+{% else %}
+<article>
+    <p>No valid path to display. Enter an even-length hex string (e.g. <code>fb1f7a</code>).</p>
+</article>
+{% endif %}

@@ -46,6 +46,8 @@ async def run(config: AppConfig) -> None:
     bot = PathBot(config, db, bus, message_store)
     cleanup_task = asyncio.create_task(_daily_db_cleanup(db), name="daily-db-cleanup")
 
+    servers: list = []
+
     if config.web.enabled:
         from .web.app import create_app
 
@@ -56,14 +58,30 @@ async def run(config: AppConfig) -> None:
             port=config.web.port,
             log_level=config.logging.level.lower(),
         )
-        server = uvicorn.Server(uvi_config)
-
+        servers.append(uvicorn.Server(uvi_config))
         log.info(f"Starting web dashboard on http://{config.web.host}:{config.web.port}")
 
+    if config.guest_web.enabled:
+        from .web.guest_app import create_guest_app
+
+        guest_app = create_guest_app(config, bot, db, bus, message_store)
+        guest_uvi_config = uvicorn.Config(
+            guest_app,
+            host=config.guest_web.host,
+            port=config.guest_web.port,
+            log_level=config.logging.level.lower(),
+        )
+        servers.append(uvicorn.Server(guest_uvi_config))
+        log.info(
+            f"Starting guest web dashboard on "
+            f"http://{config.guest_web.host}:{config.guest_web.port}"
+        )
+
+    if servers:
         try:
             await asyncio.gather(
                 bot.start(),
-                server.serve(),
+                *(s.serve() for s in servers),
             )
         except (KeyboardInterrupt, asyncio.CancelledError):
             log.info("Shutting down...")
@@ -73,7 +91,7 @@ async def run(config: AppConfig) -> None:
                 await cleanup_task
             await bot.stop()
     else:
-        log.info("Web dashboard disabled, running bot only")
+        log.info("Web dashboards disabled, running bot only")
         try:
             await bot.start()
             await asyncio.Event().wait()
