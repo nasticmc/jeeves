@@ -11,9 +11,13 @@ from meshcore import EventType, MeshCore
 from ..config.schema import AppConfig
 from ..events.bus import EventBus
 from ..events.types import AppEvent
+from . import _reader_patch
 from .message_store import MessageStore
 from .path_resolver import PathResolver
 from .repeater_db import RepeaterDB
+
+# Fix meshcore channel message parsing to extract path bytes.
+_reader_patch.apply()
 
 log = logging.getLogger("pathbot.bot")
 
