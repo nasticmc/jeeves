@@ -24,4 +24,31 @@
     {% include "partials/path_display.html" %}
     {% endif %}
 </div>
+
+<hr>
+
+<h2>User Path Search</h2>
+
+<p><small>Search by user name to see all paths they have been heard via.</small></p>
+
+<form hx-post="/paths/search" hx-target="#user-path-result" hx-swap="innerHTML">
+    <fieldset role="group">
+        <input
+            type="text"
+            name="peer_name"
+            placeholder="Enter user name"
+            list="peer-list"
+            required
+        >
+        <button type="submit">Search</button>
+    </fieldset>
+</form>
+
+<datalist id="peer-list">
+    {% for peer in peers %}
+    <option value="{{ peer }}">
+    {% endfor %}
+</datalist>
+
+<div id="user-path-result"></div>
 {% endblock %}
