@@ -17,7 +17,7 @@ StandardError=journal
 # Security hardening
 NoNewPrivileges=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/meshcore-pathbot
+ReadWritePaths=/var/lib/meshcore-pathbot /etc/meshcore-pathbot
 ProtectHome=yes
 
 # Allow serial device access
