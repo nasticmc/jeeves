@@ -264,6 +264,25 @@ class PathBot:
         # No colon — entire text is the message, sender unknown
         return "???", text
 
+    @staticmethod
+    def _split_message(text: str, max_len: int = 120) -> list[str]:
+        """Split a message into chunks of at most max_len characters, breaking on word boundaries."""
+        if len(text) <= max_len:
+            return [text]
+        chunks = []
+        while text:
+            if len(text) <= max_len:
+                chunks.append(text)
+                break
+            # Find the last space within the limit
+            split_at = text.rfind(" ", 0, max_len + 1)
+            if split_at <= 0:
+                # No space found — hard split
+                split_at = max_len
+            chunks.append(text[:split_at])
+            text = text[split_at:].lstrip(" ")
+        return chunks
+
     def _build_paths_reply(self, sender: str) -> str:
         """Build reply for the 'paths' command — unique paths seen from this sender."""
         raw_paths = self.message_store.get_paths_for_peer(sender)
@@ -378,16 +397,18 @@ class PathBot:
             else:
                 reply = f"@[{sender}] rxed"
 
-        log.info(f"Replying: {reply}")
+        chunks = self._split_message(reply)
+        log.info(f"Replying ({len(chunks)} part(s)): {reply}")
 
-        result = await self._mc.commands.send_chan_msg(self.config.bot.channel, reply)
-        if result.type == EventType.ERROR:
-            log.error(f"Failed to send reply: {result.payload}")
-            self.stats.errors += 1
-            await self.bus.publish(AppEvent.ERROR, {"message": f"Send failed: {result.payload}"})
-            return
+        for chunk in chunks:
+            result = await self._mc.commands.send_chan_msg(self.config.bot.channel, chunk)
+            if result.type == EventType.ERROR:
+                log.error(f"Failed to send reply chunk: {result.payload}")
+                self.stats.errors += 1
+                await self.bus.publish(AppEvent.ERROR, {"message": f"Send failed: {result.payload}"})
+                return
+            self.stats.messages_out += 1
 
-        self.stats.messages_out += 1
         out_ts = time.time()
         await self.message_store.add(
             "out", sender, reply, out_ts, self.config.bot.channel,
