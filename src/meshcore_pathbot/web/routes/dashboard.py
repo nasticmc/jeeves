@@ -24,7 +24,7 @@ async def dashboard(
             "stats": bot.stats.to_dict(),
             "db_stats": db.stats(),
             "connected": bot.is_connected,
-            "channel": bot.config.bot.channel,
+            "channels": bot.config.bot.get_active_channels(),
             "totals_24h": store.get_24h_totals(),
         },
     )
