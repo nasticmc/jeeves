@@ -181,3 +181,17 @@ table button {
     font-size: 0.8rem;
     margin: 0;
 }
+
+/* Radio settings readonly fields */
+.radio-readonly {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Radio channels table save buttons */
+#radio-channels-table button {
+    padding: 4px 14px;
+    font-size: 0.8rem;
+    margin: 0;
+    white-space: nowrap;
+}
