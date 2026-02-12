@@ -5,6 +5,7 @@ from pathlib import Path
 import asyncio
 
 from meshcore_pathbot.core.path_resolver import PathResolver
+from meshcore_pathbot.config.schema import AppConfig
 from meshcore_pathbot.core.repeater_db import RepeaterDB
 
 
@@ -100,3 +101,21 @@ def test_resolve_detailed_uses_manual_selection_and_marks_selected_option(tmp_pa
     assert len(selected) == 1
     assert selected[0]["public_key"] == "aa1111"
     assert hops[1]["distance_from_prev"] is not None
+
+
+def test_resolve_detailed_home_repeater_last_hop_uses_bot_location(tmp_path: Path) -> None:
+    db = RepeaterDB(tmp_path / "repeaters.json")
+    asyncio.run(db.load())
+
+    config = AppConfig()
+    config.bot.home_repeater_name = "Home"
+    config.bot.home_repeater_prefix = "bb"
+    config.bot.lat = 12.34
+    config.bot.lon = 56.78
+
+    resolver = PathResolver(db, config=config)
+    hops = resolver.resolve_detailed("aabb")
+
+    assert hops[1]["name"] == "Home"
+    assert hops[1]["lat"] == 12.34
+    assert hops[1]["lon"] == 56.78
