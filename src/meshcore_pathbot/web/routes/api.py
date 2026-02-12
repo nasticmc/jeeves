@@ -75,3 +75,22 @@ async def stats_json(bot=Depends(get_bot), db=Depends(get_db)):
         "connected": bot.is_connected,
         "timestamp": time.time(),
     }
+
+
+@router.get("/packets/totals")
+async def packets_totals(store=Depends(get_message_store)):
+    """Return 24-hour packet totals by type."""
+    return store.get_24h_totals()
+
+
+@router.get("/packets/hourly")
+async def packets_hourly(store=Depends(get_message_store)):
+    """Return hourly packet counts for the last 24 hours."""
+    from datetime import datetime
+    data = store.get_hourly_counts(24)
+    return {
+        "labels": [datetime.fromtimestamp(d["hour_ts"]).strftime("%H:%M") for d in data],
+        "msg_in": [d["msg_in"] for d in data],
+        "msg_out": [d["msg_out"] for d in data],
+        "advert": [d["advert"] for d in data],
+    }

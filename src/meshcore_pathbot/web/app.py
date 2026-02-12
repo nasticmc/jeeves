@@ -88,13 +88,14 @@ def create_app(
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
     # Import and include route routers
-    from .routes import api, dashboard, messages, overlaps, paths, repeaters, settings, stats
+    from .routes import api, dashboard, messages, overlaps, packets, paths, repeaters, settings, stats
 
     app.include_router(dashboard.router)
     app.include_router(messages.router)
     app.include_router(repeaters.router)
     app.include_router(overlaps.router)
     app.include_router(paths.router)
+    app.include_router(packets.router)
     app.include_router(settings.router)
     app.include_router(stats.router)
     app.include_router(api.router, prefix="/api")
