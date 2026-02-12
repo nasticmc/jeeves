@@ -23,16 +23,22 @@ lon = 0.0                          # Bot longitude (0.0 = unset)
 # Channel management — define multiple channels with per-channel command control.
 # If no [[bot.channels]] entries exist, the bot falls back to bot.channel above.
 # enabled_commands can include: "trace", "ping", "paths", "prefix"
+# rate_limit_enabled enables per-user command rate limiting on the channel
+# rate_limit_seconds is the per-user cooldown window (default 120 seconds)
 
 [[bot.channels]]
 id = 1
 name = "General"
 enabled_commands = ["trace", "ping", "paths", "prefix"]
+rate_limit_enabled = true
+rate_limit_seconds = 120
 
 [[bot.channels]]
 id = 2
 name = "Monitoring"
 enabled_commands = ["trace", "ping"]
+rate_limit_enabled = false
+rate_limit_seconds = 120
 
 [web]
 enabled = true

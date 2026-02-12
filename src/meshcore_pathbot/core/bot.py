@@ -102,6 +102,7 @@ class PathBot:
         self.stats = BotStats()
         self._mc: MeshCore | None = None
         self._latest_rx_path: dict[str, Any] = {}
+        self._last_command_at_by_user: dict[tuple[int, str], float] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -380,6 +381,23 @@ class PathBot:
         if not self.config.bot.is_command_enabled(channel_id, cmd_name):
             log.debug(f"Command '{cmd_name}' not enabled on channel {channel_id}, ignoring")
             return
+
+        if self.config.bot.is_rate_limit_enabled(channel_id):
+            timeout_s = self.config.bot.get_rate_limit_seconds(channel_id)
+            sender_key = sender.strip().lower()
+            rate_limit_key = (channel_id, sender_key)
+            now = time.time()
+            last_cmd_at = self._last_command_at_by_user.get(rate_limit_key)
+            if last_cmd_at is not None and (now - last_cmd_at) < timeout_s:
+                remaining = timeout_s - (now - last_cmd_at)
+                log.debug(
+                    "Rate limit hit for %s on channel %s (%ss remaining)",
+                    sender,
+                    channel_id,
+                    int(max(1, remaining)),
+                )
+                return
+            self._last_command_at_by_user[rate_limit_key] = now
 
         self.stats.commands_processed += 1
 

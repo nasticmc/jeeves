@@ -29,6 +29,8 @@ class ChannelConfig(BaseModel):
     enabled_commands: list[str] = Field(
         default_factory=lambda: ["trace", "ping", "paths", "prefix"],
     )
+    rate_limit_enabled: bool = True
+    rate_limit_seconds: int = Field(default=120, ge=1)
 
 
 class BotConfig(BaseModel):
@@ -56,6 +58,20 @@ class BotConfig(BaseModel):
             if ch.id == channel_id:
                 return command in ch.enabled_commands
         return False
+
+    def is_rate_limit_enabled(self, channel_id: int) -> bool:
+        """Check whether command rate limiting is enabled on a channel."""
+        for ch in self.get_active_channels():
+            if ch.id == channel_id:
+                return ch.rate_limit_enabled
+        return True
+
+    def get_rate_limit_seconds(self, channel_id: int) -> int:
+        """Return per-user command rate limit timeout for a channel."""
+        for ch in self.get_active_channels():
+            if ch.id == channel_id:
+                return ch.rate_limit_seconds
+        return 120
 
 
 class WebConfig(BaseModel):

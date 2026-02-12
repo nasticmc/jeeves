@@ -96,6 +96,8 @@ async def save_settings(
             ch_id = int(ch.get("id", 0))
             ch_name = str(ch.get("name", "")).strip()
             ch_cmds = ch.get("enabled_commands", ALL_COMMANDS)
+            ch_rate_limit_enabled = bool(ch.get("rate_limit_enabled", True))
+            ch_rate_limit_seconds = int(ch.get("rate_limit_seconds", 120))
             if not isinstance(ch_cmds, list):
                 ch_cmds = ALL_COMMANDS
             # Validate command names
@@ -104,6 +106,8 @@ async def save_settings(
                 id=ch_id,
                 name=ch_name,
                 enabled_commands=ch_cmds,
+                rate_limit_enabled=ch_rate_limit_enabled,
+                rate_limit_seconds=ch_rate_limit_seconds,
             ))
         except (ValueError, TypeError):
             continue
