@@ -41,6 +41,22 @@ class PathResolver:
             return None
         return {"lat": lat, "lon": lon}
 
+    def _home_repeater_entry(self, prefix: str, index: int, total_hops: int) -> dict:
+        """Build the synthetic home repeater entry used for configured home hops."""
+        home_entry = {
+            "prefix": prefix,
+            "name": self._config.bot.home_repeater_name,
+            "lat": 0,
+            "lon": 0,
+        }
+        # For the final hop, the home repeater should anchor to bot location.
+        if index == total_hops - 1:
+            bot_loc = self._bot_location()
+            if bot_loc:
+                home_entry["lat"] = bot_loc["lat"]
+                home_entry["lon"] = bot_loc["lon"]
+        return home_entry
+
     @staticmethod
     def normalize_path(raw: str) -> str:
         """Normalize a path string to a plain hex string.
@@ -78,10 +94,7 @@ class PathResolver:
         home_hits: set[int] = set()
         for idx, p in enumerate(prefixes):
             if self._is_home_repeater(p, idx, hop_count):
-                hr_name = self._config.bot.home_repeater_name
-                candidates.append(
-                    [{"prefix": p, "name": hr_name, "lat": 0, "lon": 0}]
-                )
+                candidates.append([self._home_repeater_entry(p, idx, hop_count)])
                 home_hits.add(idx)
             else:
                 matches = self.db.get_by_prefix(p)
@@ -168,9 +181,8 @@ class PathResolver:
         home_hits: set[int] = set()
         for idx, p in enumerate(prefixes):
             if self._is_home_repeater(p, idx, hop_count):
-                hr_name = self._config.bot.home_repeater_name
                 candidates.append(
-                    [{"prefix": p, "name": hr_name, "lat": 0, "lon": 0, "resolved": True}]
+                    [{**self._home_repeater_entry(p, idx, hop_count), "resolved": True}]
                 )
                 home_hits.add(idx)
             else:
@@ -292,8 +304,7 @@ class PathResolver:
         home_hits: set[int] = set()
         for idx, p in enumerate(prefixes):
             if self._is_home_repeater(p, idx, hop_count):
-                hr_name = self._config.bot.home_repeater_name
-                candidates.append([{"prefix": p, "name": hr_name, "lat": 0, "lon": 0}])
+                candidates.append([self._home_repeater_entry(p, idx, hop_count)])
                 home_hits.add(idx)
             else:
                 matches = self.db.get_by_prefix(p)
@@ -337,6 +348,7 @@ class PathResolver:
 
         # Format: "fb=Hilltop, 1f=Valley, 7a=?"
         parts = []
+        manual_hits: set[int] = set()
         for i, node in enumerate(resolved):
             prefix = prefixes[i]
             name = node["name"]
