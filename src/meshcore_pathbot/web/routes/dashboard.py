@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
 
-from ..dependencies import get_bot, get_db
+from ..dependencies import get_bot, get_db, get_message_store
 
 router = APIRouter()
 
@@ -14,6 +14,7 @@ async def dashboard(
     request: Request,
     bot=Depends(get_bot),
     db=Depends(get_db),
+    store=Depends(get_message_store),
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -24,5 +25,6 @@ async def dashboard(
             "db_stats": db.stats(),
             "connected": bot.is_connected,
             "channel": bot.config.bot.channel,
+            "totals_24h": store.get_24h_totals(),
         },
     )

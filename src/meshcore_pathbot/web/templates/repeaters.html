@@ -23,11 +23,11 @@
 <table role="grid">
     <thead>
         <tr>
-            <th>Name</th>
-            <th>Prefix</th>
-            <th>Lat</th>
-            <th>Lon</th>
-            <th>Last Seen</th>
+            <th class="sortable" data-col="0" data-type="str" style="cursor:pointer;">Name <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="1" data-type="str" style="cursor:pointer;">Prefix <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="2" data-type="num" style="cursor:pointer;">Lat <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="3" data-type="num" style="cursor:pointer;">Lon <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="4" data-type="str" style="cursor:pointer;">Last Seen <span class="sort-icon"></span></th>
             <th>Actions</th>
         </tr>
     </thead>
@@ -44,34 +44,85 @@
 
 <script>
 (function() {
+    // Search
     var searchInput = document.getElementById('repeater-search');
     var statusEl = document.getElementById('repeater-search-status');
-    if (!searchInput) return;
-
-    searchInput.addEventListener('input', function() {
-        var query = this.value.trim().toLowerCase();
-        var rows = document.querySelectorAll('#repeater-list tr');
-        var shown = 0;
-        var total = rows.length;
-
-        rows.forEach(function(row) {
-            var name = (row.cells[0] && row.cells[0].textContent || '').toLowerCase();
-            var prefix = (row.cells[1] && row.cells[1].textContent || '').toLowerCase();
-
-            if (!query || name.indexOf(query) !== -1 || prefix.indexOf(query) !== -1) {
-                row.style.display = '';
-                shown++;
+    if (searchInput) {
+        searchInput.addEventListener('input', function() {
+            var query = this.value.trim().toLowerCase();
+            var rows = document.querySelectorAll('#repeater-list tr');
+            var shown = 0;
+            var total = rows.length;
+            rows.forEach(function(row) {
+                var name = (row.cells[0] && row.cells[0].textContent || '').toLowerCase();
+                var prefix = (row.cells[1] && row.cells[1].textContent || '').toLowerCase();
+                if (!query || name.indexOf(query) !== -1 || prefix.indexOf(query) !== -1) {
+                    row.style.display = '';
+                    shown++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            if (query) {
+                statusEl.textContent = 'Showing ' + shown + ' of ' + total + ' repeaters';
+                statusEl.style.display = 'block';
             } else {
-                row.style.display = 'none';
+                statusEl.style.display = 'none';
             }
         });
+    }
 
-        if (query) {
-            statusEl.textContent = 'Showing ' + shown + ' of ' + total + ' repeaters';
-            statusEl.style.display = 'block';
-        } else {
-            statusEl.style.display = 'none';
-        }
+    // Sortable table
+    var sortState = { col: null, asc: true };
+
+    function updateSortIcons(activeCol) {
+        document.querySelectorAll('th.sortable').forEach(function(th) {
+            var icon = th.querySelector('.sort-icon');
+            var col = parseInt(th.getAttribute('data-col'));
+            if (col === activeCol) {
+                icon.textContent = sortState.asc ? ' ▲' : ' ▼';
+            } else {
+                icon.textContent = '';
+            }
+        });
+    }
+
+    function sortTable(col, type) {
+        var tbody = document.getElementById('repeater-list');
+        var rows = Array.from(tbody.querySelectorAll('tr'));
+        var asc = (sortState.col === col) ? !sortState.asc : true;
+        sortState = { col: col, asc: asc };
+
+        rows.sort(function(a, b) {
+            var av = (a.cells[col] && a.cells[col].textContent.trim()) || '';
+            var bv = (b.cells[col] && b.cells[col].textContent.trim()) || '';
+            // Push '--' (missing values) to the bottom regardless of direction
+            var aEmpty = (av === '--' || av === '');
+            var bEmpty = (bv === '--' || bv === '');
+            if (aEmpty && bEmpty) return 0;
+            if (aEmpty) return 1;
+            if (bEmpty) return -1;
+            var cmp;
+            if (type === 'num') {
+                cmp = parseFloat(av) - parseFloat(bv);
+                if (isNaN(cmp)) cmp = av.localeCompare(bv);
+            } else {
+                cmp = av.localeCompare(bv);
+            }
+            return asc ? cmp : -cmp;
+        });
+
+        rows.forEach(function(row) { tbody.appendChild(row); });
+        updateSortIcons(col);
+    }
+
+    document.querySelectorAll('th.sortable').forEach(function(th) {
+        th.addEventListener('click', function() {
+            sortTable(
+                parseInt(th.getAttribute('data-col')),
+                th.getAttribute('data-type')
+            );
+        });
     });
 })();
 </script>

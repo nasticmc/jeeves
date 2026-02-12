@@ -207,6 +207,8 @@ class PathBot:
             log.debug(f"Ignoring advert with unsupported payload type: {type(event.payload).__name__}")
             return
 
+        await self.message_store.add_event("advert")
+
         result = await self._mc.commands.get_contacts()
         if result.type == EventType.ERROR:
             log.warning(f"Could not refresh contacts after advert: {result.payload}")

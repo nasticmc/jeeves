@@ -57,6 +57,14 @@ class MessageStore:
             CREATE INDEX IF NOT EXISTS idx_messages_timestamp ON messages(timestamp);
             CREATE INDEX IF NOT EXISTS idx_messages_peer_direction ON messages(peer, direction);
             CREATE INDEX IF NOT EXISTS idx_messages_peer_path ON messages(peer, path);
+
+            CREATE TABLE IF NOT EXISTS events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                timestamp REAL NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_events_type_ts ON events(event_type, timestamp);
             """
         )
         self._ensure_column_sync("rxlog", "TEXT NOT NULL DEFAULT ''")
@@ -237,6 +245,82 @@ class MessageStore:
             (peer,),
         ).fetchall()
         return [str(row["path"]) for row in rows]
+
+    async def add_event(self, event_type: str) -> None:
+        """Record a lightweight packet event (e.g. 'advert')."""
+        ts = time.time()
+        async with self._lock:
+            self._conn.execute(
+                "INSERT INTO events (event_type, timestamp) VALUES (?, ?)",
+                (event_type, ts),
+            )
+            self._conn.commit()
+
+    def get_hourly_counts(self, hours: int = 24) -> list[dict]:
+        """Return hourly packet counts for the last N hours.
+
+        Returns a list of dicts with keys: hour_ts, msg_in, msg_out, advert,
+        sorted oldest-first.
+        """
+        import math
+        now = time.time()
+        start = now - hours * 3600
+        start_hour = math.floor(start / 3600) * 3600
+
+        # Pre-fill all buckets with zeros
+        buckets: dict[int, dict] = {}
+        for i in range(hours):
+            h = start_hour + i * 3600
+            buckets[h] = {"hour_ts": h, "msg_in": 0, "msg_out": 0, "advert": 0}
+
+        # Messages (in/out) per hour
+        for row in self._conn.execute(
+            """
+            SELECT CAST(timestamp / 3600 AS INTEGER) * 3600 AS h,
+                   direction, COUNT(*) AS cnt
+            FROM messages
+            WHERE timestamp >= ?
+            GROUP BY h, direction
+            """,
+            (start,),
+        ).fetchall():
+            h = int(row["h"])
+            if h in buckets:
+                buckets[h][f"msg_{row['direction']}"] = int(row["cnt"])
+
+        # Adverts per hour
+        for row in self._conn.execute(
+            """
+            SELECT CAST(timestamp / 3600 AS INTEGER) * 3600 AS h,
+                   COUNT(*) AS cnt
+            FROM events
+            WHERE event_type = 'advert' AND timestamp >= ?
+            GROUP BY h
+            """,
+            (start,),
+        ).fetchall():
+            h = int(row["h"])
+            if h in buckets:
+                buckets[h]["advert"] = int(row["cnt"])
+
+        return sorted(buckets.values(), key=lambda x: x["hour_ts"])
+
+    def get_24h_totals(self) -> dict:
+        """Return total packet counts for the last 24 hours."""
+        since = time.time() - 86400
+        msg_in = self._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE direction = 'in' AND timestamp >= ?",
+            (since,),
+        ).fetchone()[0]
+        msg_out = self._conn.execute(
+            "SELECT COUNT(*) FROM messages WHERE direction = 'out' AND timestamp >= ?",
+            (since,),
+        ).fetchone()[0]
+        adverts = self._conn.execute(
+            "SELECT COUNT(*) FROM events WHERE event_type = 'advert' AND timestamp >= ?",
+            (since,),
+        ).fetchone()[0]
+        return {"msg_in": int(msg_in), "msg_out": int(msg_out), "advert": int(adverts)}
 
     async def clear(self) -> None:
         """Clear all messages."""
