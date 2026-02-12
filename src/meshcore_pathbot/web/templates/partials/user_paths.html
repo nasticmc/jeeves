@@ -12,6 +12,16 @@
                 {% if hop.lat and hop.lon %}
                 <small>({{ "%.2f" | format(hop.lat) }}, {{ "%.2f" | format(hop.lon) }})</small>
                 {% endif %}
+                {% if hop.get('options') %}
+                <details>
+                    <summary><small>{{ hop.options | length }} repeater options for prefix {{ hop.prefix }}</small></summary>
+                    <ul>
+                        {% for option in hop.options %}
+                        <li>{{ option.name }}{% if option.lat and option.lon %} ({{ "%.2f" | format(option.lat) }}, {{ "%.2f" | format(option.lon) }}){% endif %}</li>
+                        {% endfor %}
+                    </ul>
+                </details>
+                {% endif %}
             </span>
             {% if not loop.last %}
             <span class="arrow-group">

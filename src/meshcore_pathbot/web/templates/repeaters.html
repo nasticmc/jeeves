@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Repeaters - PathBot{% endblock %}
+{% block title %}Repeaters - Jeeves2.0{% endblock %}
 {% block content %}
 <h2>Repeater Database</h2>
 
@@ -9,6 +9,14 @@
         {{ stats.unique_prefixes }} unique prefixes |
         {{ stats.collisions }} collisions |
         {{ stats.with_location }} with location
+    </small>
+</p>
+
+
+<p>
+    <small>
+        Repeater records are retained for {{ retention_days }} days. Next cleanup in
+        <strong id="cleanup-countdown" data-seconds="{{ seconds_until_cleanup }}">--</strong>.
     </small>
 </p>
 
@@ -124,6 +132,23 @@
             );
         });
     });
+
+    var countdownEl = document.getElementById('cleanup-countdown');
+    if (countdownEl) {
+        var remaining = parseInt(countdownEl.getAttribute('data-seconds') || '0', 10);
+        function fmt(sec) {
+            var h = Math.floor(sec / 3600);
+            var m = Math.floor((sec % 3600) / 60);
+            var s = sec % 60;
+            return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+        }
+        function tick() {
+            countdownEl.textContent = fmt(Math.max(remaining, 0));
+            remaining = Math.max(remaining - 1, 0);
+        }
+        tick();
+        setInterval(tick, 1000);
+    }
 })();
 </script>
 {% endblock %}

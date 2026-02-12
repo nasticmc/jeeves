@@ -35,7 +35,7 @@ def create_app(
 ) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
-        title="MeshCore PathBot",
+        title="MeshCore Jeeves2.0",
         version="0.1.0",
         lifespan=lifespan,
     )
