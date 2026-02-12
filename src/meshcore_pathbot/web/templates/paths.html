@@ -5,7 +5,7 @@
 
 <p><small>Enter a raw hex path string to resolve it into repeater names.</small></p>
 
-<form hx-post="/paths/resolve" hx-target="#path-result" hx-swap="innerHTML">
+<form id="path-resolve-form" hx-post="/paths/resolve" hx-target="#path-result" hx-swap="innerHTML">
     <fieldset role="group">
         <input
             type="text"
@@ -15,6 +15,7 @@
             value="{{ raw_path or '' }}"
             required
         >
+        <input type="hidden" id="selected-repeaters" name="selected_repeaters" value="{}">
         <button type="submit">Resolve</button>
     </fieldset>
 </form>
@@ -51,4 +52,54 @@
 </datalist>
 
 <div id="user-path-result"></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+    function bindPrefixSelectors() {
+        var hiddenInput = document.getElementById('selected-repeaters');
+        if (!hiddenInput) {
+            return;
+        }
+        var selects = document.querySelectorAll('.prefix-option-select');
+        selects.forEach(function (selectEl) {
+            if (selectEl.dataset.bound === '1') {
+                return;
+            }
+            selectEl.dataset.bound = '1';
+            selectEl.addEventListener('change', function () {
+                var prefix = selectEl.getAttribute('data-prefix') || '';
+                if (!prefix) {
+                    return;
+                }
+
+                var selections = {};
+                try {
+                    selections = JSON.parse(hiddenInput.value || '{}') || {};
+                } catch (e) {
+                    selections = {};
+                }
+
+                if (selectEl.value) {
+                    selections[prefix] = selectEl.value;
+                } else {
+                    delete selections[prefix];
+                }
+
+                hiddenInput.value = JSON.stringify(selections);
+                if (window.htmx) {
+                    htmx.trigger('#path-resolve-form', 'submit');
+                }
+            });
+        });
+    }
+
+    document.addEventListener('DOMContentLoaded', bindPrefixSelectors);
+    document.body.addEventListener('htmx:afterSwap', function (evt) {
+        if (evt.target && evt.target.id === 'path-result') {
+            bindPrefixSelectors();
+        }
+    });
+})();
+</script>
 {% endblock %}

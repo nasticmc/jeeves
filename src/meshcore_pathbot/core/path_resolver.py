@@ -56,7 +56,7 @@ class PathResolver:
         cleaned = re.sub(r"[:\s,]+", "", raw).strip().lower()
         return cleaned
 
-    def resolve(self, raw_path: str) -> str:
+    def resolve(self, raw_path: str, preferred_repeaters: dict[str, str] | None = None) -> str:
         """Resolve a raw hex path into friendly names.
 
         raw_path: e.g. "fb1f7a" or "fb:1f:7a" or "fb,1f,7a"
@@ -92,12 +92,25 @@ class PathResolver:
                 else:
                     candidates.append(matches)
 
-        # Resolve ambiguous hops using geographic proximity
+        preferred_repeaters = preferred_repeaters or {}
+
+        # Resolve ambiguous hops using explicit choices, then geographic proximity
         bot_loc = self._bot_location()
         resolved = []
+        manual_hits: set[int] = set()
         for i, options in enumerate(candidates):
             if len(options) == 1:
                 resolved.append(options[0])
+                continue
+
+            preferred_public_key = preferred_repeaters.get(prefixes[i], "")
+            preferred = next(
+                (o for o in options if o.get("public_key", "") == preferred_public_key),
+                None,
+            )
+            if preferred:
+                manual_hits.add(i)
+                resolved.append(preferred)
                 continue
 
             # Gather reference points from neighbours
@@ -131,14 +144,18 @@ class PathResolver:
         parts = []
         for i, node in enumerate(resolved):
             name = node["name"]
-            if i not in home_hits and len(candidates[i]) > 1:
+            if i not in home_hits and i not in manual_hits and len(candidates[i]) > 1:
                 name += "?"
             parts.append(name)
 
         path_str = " \u2192 ".join(parts)
         return f"{path_str} ({hop_count} hops)"
 
-    def resolve_detailed(self, raw_path: str) -> list[dict]:
+    def resolve_detailed(
+        self,
+        raw_path: str,
+        preferred_repeaters: dict[str, str] | None = None,
+    ) -> list[dict]:
         """Resolve path and return detailed hop information for web display."""
         raw_path = self.normalize_path(raw_path)
         if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
@@ -168,6 +185,7 @@ class PathResolver:
                         for m in matches
                     ])
 
+        preferred_repeaters = preferred_repeaters or {}
         bot_loc = self._bot_location()
         resolved = []
         for i, options in enumerate(candidates):
@@ -177,35 +195,54 @@ class PathResolver:
                 resolved.append(hop)
                 continue
 
-            ref_points = []
-            if i > 0 and has_location(resolved[i - 1]):
-                ref_points.append(resolved[i - 1])
-            if i + 1 < len(candidates) and len(candidates[i + 1]) == 1:
-                if has_location(candidates[i + 1][0]):
-                    ref_points.append(candidates[i + 1][0])
-            if i == len(candidates) - 1 and bot_loc:
-                ref_points.append(bot_loc)
-
-            if not ref_points:
-                best = max(options, key=lambda o: o.get("last_seen", 0))
+            preferred_public_key = preferred_repeaters.get(prefixes[i], "")
+            preferred = next(
+                (o for o in options if o.get("public_key", "") == preferred_public_key),
+                None,
+            )
+            if preferred:
+                best = preferred
+                selected_by = "manual"
             else:
+                selected_by = "distance"
 
-                def score(node: dict) -> float:
-                    if not has_location(node):
-                        return float("inf")
-                    return sum(
-                        haversine(node["lat"], node["lon"], rp["lat"], rp["lon"])
-                        for rp in ref_points
-                    ) / len(ref_points)
+                ref_points = []
+                if i > 0 and has_location(resolved[i - 1]):
+                    ref_points.append(resolved[i - 1])
+                if i + 1 < len(candidates) and len(candidates[i + 1]) == 1:
+                    if has_location(candidates[i + 1][0]):
+                        ref_points.append(candidates[i + 1][0])
+                if i == len(candidates) - 1 and bot_loc:
+                    ref_points.append(bot_loc)
 
-                best = min(options, key=score)
+                if not ref_points:
+                    selected_by = "last_seen"
+                    best = max(options, key=lambda o: o.get("last_seen", 0))
+                else:
+
+                    def score(node: dict) -> float:
+                        if not has_location(node):
+                            return float("inf")
+                        return sum(
+                            haversine(node["lat"], node["lon"], rp["lat"], rp["lon"])
+                            for rp in ref_points
+                        ) / len(ref_points)
+
+                    best = min(options, key=score)
 
             hop = dict(best)
-            hop["ambiguous"] = i not in home_hits
+            hop["ambiguous"] = i not in home_hits and selected_by != "manual"
+            hop["selected_by"] = selected_by
             hop["candidates"] = len(options)
             if len(options) > 1:
                 hop["options"] = sorted(
-                    [dict(option) for option in options],
+                    [
+                        {
+                            **option,
+                            "selected": option.get("public_key", "") == hop.get("public_key", ""),
+                        }
+                        for option in options
+                    ],
                     key=lambda option: option.get("name", ""),
                 )
             resolved.append(hop)
@@ -303,7 +340,7 @@ class PathResolver:
         for i, node in enumerate(resolved):
             prefix = prefixes[i]
             name = node["name"]
-            if i not in home_hits and len(candidates[i]) > 1:
+            if i not in home_hits and i not in manual_hits and len(candidates[i]) > 1:
                 name += "?"
             parts.append(f"{prefix}={name}")
 

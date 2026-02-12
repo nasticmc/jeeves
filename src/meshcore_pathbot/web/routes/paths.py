@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Form, Request
 
 from ..dependencies import get_bot, get_message_store
@@ -23,13 +25,21 @@ async def paths_page(request: Request, store=Depends(get_message_store)):
 async def resolve_path(
     request: Request,
     raw_path: str = Form(""),
+    selected_repeaters: str = Form("{}"),
     bot=Depends(get_bot),
 ):
     templates = request.app.state.templates
     raw_path = raw_path.strip().lower()
 
-    hops = bot.resolver.resolve_detailed(raw_path) if raw_path else []
-    resolved_str = bot.resolver.resolve(raw_path) if raw_path else ""
+    try:
+        preferred_repeaters = json.loads(selected_repeaters or "{}")
+        if not isinstance(preferred_repeaters, dict):
+            preferred_repeaters = {}
+    except json.JSONDecodeError:
+        preferred_repeaters = {}
+
+    hops = bot.resolver.resolve_detailed(raw_path, preferred_repeaters=preferred_repeaters) if raw_path else []
+    resolved_str = bot.resolver.resolve(raw_path, preferred_repeaters=preferred_repeaters) if raw_path else ""
     raw_str = bot.resolver.raw(raw_path) if raw_path else ""
 
     return templates.TemplateResponse(
