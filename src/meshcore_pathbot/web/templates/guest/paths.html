@@ -86,8 +86,9 @@
                 }
 
                 hiddenInput.value = JSON.stringify(selections);
-                if (window.htmx) {
-                    htmx.trigger('#path-resolve-form', 'submit');
+                var form = document.getElementById('path-resolve-form');
+                if (form) {
+                    form.requestSubmit();
                 }
             });
         });
