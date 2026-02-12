@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
+import asyncio
 
 from meshcore_pathbot.core.path_resolver import PathResolver
 from meshcore_pathbot.core.repeater_db import RepeaterDB
 
 
-@pytest.mark.asyncio
-async def test_resolve_detailed_includes_prefix_options_for_ambiguous_hop(tmp_path: Path) -> None:
+def test_resolve_detailed_includes_prefix_options_for_ambiguous_hop(tmp_path: Path) -> None:
     db = RepeaterDB(tmp_path / "repeaters.json")
-    await db.load()
+    asyncio.run(db.load())
 
-    await db.update_from_contact(
+    asyncio.run(db.update_from_contact(
         {
             "public_key": "aa1111",
             "adv_type": 2,
@@ -22,8 +21,8 @@ async def test_resolve_detailed_includes_prefix_options_for_ambiguous_hop(tmp_pa
             "adv_lon": -74.0,
             "last_seen": 100,
         }
-    )
-    await db.update_from_contact(
+    ))
+    asyncio.run(db.update_from_contact(
         {
             "public_key": "aa2222",
             "adv_type": 2,
@@ -32,8 +31,8 @@ async def test_resolve_detailed_includes_prefix_options_for_ambiguous_hop(tmp_pa
             "adv_lon": -73.8,
             "last_seen": 200,
         }
-    )
-    await db.update_from_contact(
+    ))
+    asyncio.run(db.update_from_contact(
         {
             "public_key": "bb3333",
             "adv_type": 2,
@@ -42,7 +41,7 @@ async def test_resolve_detailed_includes_prefix_options_for_ambiguous_hop(tmp_pa
             "adv_lon": -73.0,
             "last_seen": 300,
         }
-    )
+    ))
 
     resolver = PathResolver(db)
     hops = resolver.resolve_detailed("aabb")
@@ -52,4 +51,52 @@ async def test_resolve_detailed_includes_prefix_options_for_ambiguous_hop(tmp_pa
     assert first["prefix"] == "aa"
     assert first["ambiguous"] is True
     assert first["candidates"] == 2
+    assert first["selected_by"] == "distance"
     assert [option["name"] for option in first["options"]] == ["Alpha", "Alpine"]
+
+
+def test_resolve_detailed_uses_manual_selection_and_marks_selected_option(tmp_path: Path) -> None:
+    db = RepeaterDB(tmp_path / "repeaters.json")
+    asyncio.run(db.load())
+
+    asyncio.run(db.update_from_contact(
+        {
+            "public_key": "aa1111",
+            "adv_type": 2,
+            "adv_name": "Alpha",
+            "adv_lat": 10.0,
+            "adv_lon": 10.0,
+            "last_seen": 100,
+        }
+    ))
+    asyncio.run(db.update_from_contact(
+        {
+            "public_key": "aa2222",
+            "adv_type": 2,
+            "adv_name": "Alpine",
+            "adv_lat": 20.0,
+            "adv_lon": 20.0,
+            "last_seen": 200,
+        }
+    ))
+    asyncio.run(db.update_from_contact(
+        {
+            "public_key": "bb3333",
+            "adv_type": 2,
+            "adv_name": "Bravo",
+            "adv_lat": 21.0,
+            "adv_lon": 21.0,
+            "last_seen": 300,
+        }
+    ))
+
+    resolver = PathResolver(db)
+    hops = resolver.resolve_detailed("aabb", preferred_repeaters={"aa": "aa1111"})
+
+    assert hops[0]["name"] == "Alpha"
+    assert hops[0]["ambiguous"] is False
+    assert hops[0]["selected_by"] == "manual"
+    selected = [option for option in hops[0]["options"] if option["selected"]]
+    assert len(selected) == 1
+    assert selected[0]["public_key"] == "aa1111"
+    assert hops[1]["distance_from_prev"] is not None

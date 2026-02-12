@@ -12,6 +12,9 @@
                 {% if hop.lat and hop.lon %}
                 <small>({{ "%.2f" | format(hop.lat) }}, {{ "%.2f" | format(hop.lon) }})</small>
                 {% endif %}
+                {% if hop.get('distance_from_prev') is not none %}
+                <small>{{ hop.distance_from_prev }} km from previous hop</small>
+                {% endif %}
                 {% if hop.get('options') %}
                 <details>
                     <summary><small>{{ hop.options | length }} repeater options for prefix {{ hop.prefix }}</small></summary>

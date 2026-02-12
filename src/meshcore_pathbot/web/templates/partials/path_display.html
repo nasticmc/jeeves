@@ -9,14 +9,23 @@
             {% if hop.lat and hop.lon %}
             <small>({{ "%.2f" | format(hop.lat) }}, {{ "%.2f" | format(hop.lon) }})</small>
             {% endif %}
+            {% if hop.get('distance_from_prev') is not none %}
+            <small>{{ hop.distance_from_prev }} km from previous hop</small>
+            {% endif %}
             {% if hop.get('options') %}
             <details>
                 <summary><small>{{ hop.options | length }} repeater options for prefix {{ hop.prefix }}</small></summary>
-                <ul>
-                    {% for option in hop.options %}
-                    <li>{{ option.name }}{% if option.lat and option.lon %} ({{ "%.2f" | format(option.lat) }}, {{ "%.2f" | format(option.lon) }}){% endif %}</li>
-                    {% endfor %}
-                </ul>
+                <label>
+                    Use this repeater for prefix {{ hop.prefix }}:
+                    <select class="prefix-option-select" data-prefix="{{ hop.prefix }}">
+                        <option value="">Auto (distance)</option>
+                        {% for option in hop.options %}
+                        <option value="{{ option.public_key }}" {% if option.get('selected') %}selected{% endif %}>
+                            {{ option.name }}{% if option.lat and option.lon %} ({{ "%.2f" | format(option.lat) }}, {{ "%.2f" | format(option.lon) }}){% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </label>
             </details>
             {% endif %}
         </span>
