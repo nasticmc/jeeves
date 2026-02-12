@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import json
+
 from fastapi import APIRouter, Depends, Form, Request
 
-from ...config.schema import AppConfig
+from ...config.schema import AppConfig, ChannelConfig
 from ...config.writer import save_config
 from ...events.bus import EventBus
 from ...events.types import AppEvent
 from ..dependencies import get_bus, get_config
 
 router = APIRouter()
+
+ALL_COMMANDS = ["trace", "ping", "paths", "prefix"]
 
 
 @router.get("/settings")
@@ -21,7 +25,11 @@ async def settings_page(
     templates = request.app.state.templates
     return templates.TemplateResponse(
         "settings.html",
-        {"request": request, "config": config},
+        {
+            "request": request,
+            "config": config,
+            "all_commands": ALL_COMMANDS,
+        },
     )
 
 
@@ -36,7 +44,9 @@ async def save_settings(
     tcp_host: str = Form(""),
     tcp_port: int = Form(5000),
     ble_address: str = Form(""),
+    node_name: str = Form(""),
     channel: int = Form(2),
+    channels_json: str = Form("[]"),
     ignore_list: str = Form(""),
     home_repeater_name: str = Form(""),
     home_repeater_prefix: str = Form(""),
@@ -58,6 +68,7 @@ async def save_settings(
     config.connection.tcp_host = tcp_host or None
     config.connection.tcp_port = tcp_port
     config.connection.ble_address = ble_address or None
+    config.bot.node_name = node_name.strip()
     config.bot.channel = channel
     config.bot.ignore_list = [
         s.strip() for s in ignore_list.split(",") if s.strip()
@@ -73,6 +84,32 @@ async def save_settings(
     config.guest_web.port = guest_web_port
     config.logging.level = log_level
 
+    # Parse channels from JSON submitted by the form
+    try:
+        channels_data = json.loads(channels_json)
+    except (json.JSONDecodeError, TypeError):
+        channels_data = []
+
+    parsed_channels: list[ChannelConfig] = []
+    for ch in channels_data:
+        try:
+            ch_id = int(ch.get("id", 0))
+            ch_name = str(ch.get("name", "")).strip()
+            ch_cmds = ch.get("enabled_commands", ALL_COMMANDS)
+            if not isinstance(ch_cmds, list):
+                ch_cmds = ALL_COMMANDS
+            # Validate command names
+            ch_cmds = [c for c in ch_cmds if c in ALL_COMMANDS]
+            parsed_channels.append(ChannelConfig(
+                id=ch_id,
+                name=ch_name,
+                enabled_commands=ch_cmds,
+            ))
+        except (ValueError, TypeError):
+            continue
+
+    config.bot.channels = parsed_channels
+
     # Save to file if a config path is set
     if config.config_path:
         try:
@@ -87,5 +124,5 @@ async def save_settings(
 
     return templates.TemplateResponse(
         "partials/toast.html",
-        {"request": request, "message": "Settings saved", "type": "success"},
+        {"request": request, "message": "Settings saved (restart required for channel changes)", "type": "success"},
     )

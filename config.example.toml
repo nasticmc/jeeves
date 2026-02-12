@@ -11,13 +11,28 @@ auto_reconnect = true
 max_reconnect_attempts = 10
 
 [bot]
-channel = 2                        # Channel to listen on (0-7)
+node_name = ""                     # Friendly name for this MeshCore node
+channel = 2                        # Default channel (used when no [[bot.channels]] defined)
 repeaters_file = "repeaters.db"    # Path to repeater SQLite database
 ignore_list = ["jeeves"]           # Node names to ignore (case-insensitive partial match)
 home_repeater_name = ""            # Exact name of the home repeater
 home_repeater_prefix = ""          # Prefix to match home repeater name (lowercase)
 lat = 0.0                          # Bot latitude (0.0 = unset)
 lon = 0.0                          # Bot longitude (0.0 = unset)
+
+# Channel management — define multiple channels with per-channel command control.
+# If no [[bot.channels]] entries exist, the bot falls back to bot.channel above.
+# enabled_commands can include: "trace", "ping", "paths", "prefix"
+
+[[bot.channels]]
+id = 1
+name = "General"
+enabled_commands = ["trace", "ping", "paths", "prefix"]
+
+[[bot.channels]]
+id = 2
+name = "Monitoring"
+enabled_commands = ["trace", "ping"]
 
 [web]
 enabled = true

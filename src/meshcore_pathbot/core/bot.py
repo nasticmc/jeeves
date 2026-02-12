@@ -118,16 +118,21 @@ class PathBot:
 
         self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
         self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
-        self._mc.subscribe(
-            EventType.CHANNEL_MSG_RECV,
-            self._on_channel_msg,
-            attribute_filters={"channel_idx": self.config.bot.channel},
-        )
+
+        # Subscribe to each active channel
+        active_channels = self.config.bot.get_active_channels()
+        for ch in active_channels:
+            self._mc.subscribe(
+                EventType.CHANNEL_MSG_RECV,
+                self._on_channel_msg,
+                attribute_filters={"channel_idx": ch.id},
+            )
 
         await self._mc.start_auto_message_fetching()
 
+        channel_ids = [ch.id for ch in active_channels]
         log.info(
-            f"PathBot running on channel {self.config.bot.channel} | "
+            f"PathBot running on channel(s) {channel_ids} | "
             f"Repeater DB: {self.db.stats_str()}"
         )
 
@@ -322,6 +327,9 @@ class PathBot:
         sender, msg_body = self._parse_sender(data)
         text = data.get("text", "")
 
+        # Determine which channel this message arrived on
+        channel_id = data.get("channel_idx", self.config.bot.channel)
+
         # Path data comes from the most recent RX_LOG_DATA event (radio log),
         # not from the channel message payload itself.
         rx = self._latest_rx_path
@@ -329,18 +337,18 @@ class PathBot:
         raw_path = rx.get("path", "")
         path_len = rx.get("path_len", data.get("path_len", 0))
 
-        log.debug(f"Channel msg from {sender}: {text} (path={raw_path}, path_len={path_len})")
+        log.debug(f"Channel {channel_id} msg from {sender}: {text} (path={raw_path}, path_len={path_len})")
 
         self.stats.messages_in += 1
         self.stats.last_message_at = time.time()
         ts = time.time()
 
         await self.message_store.add(
-            "in", sender, text, ts, self.config.bot.channel, path=raw_path,
+            "in", sender, text, ts, channel_id, path=raw_path,
         )
         await self.bus.publish(
             AppEvent.MSG_IN,
-            {"sender": sender, "text": text, "timestamp": ts},
+            {"sender": sender, "text": text, "timestamp": ts, "channel": channel_id},
         )
 
         # Check ignore list
@@ -359,11 +367,25 @@ class PathBot:
         if not is_trace and not is_ping and not is_paths and not is_prefix:
             return
 
+        # Determine which command matched and check per-channel permission
+        if is_prefix:
+            cmd_name = "prefix"
+        elif is_paths:
+            cmd_name = "paths"
+        elif is_trace:
+            cmd_name = "trace"
+        else:
+            cmd_name = "ping"
+
+        if not self.config.bot.is_command_enabled(channel_id, cmd_name):
+            log.debug(f"Command '{cmd_name}' not enabled on channel {channel_id}, ignoring")
+            return
+
         self.stats.commands_processed += 1
 
         # Handle prefix command — look up repeater names from hex prefixes
         if is_prefix:
-            log.info(f"Prefix lookup from {sender}")
+            log.info(f"Prefix lookup from {sender} on ch{channel_id}")
             # Extract hex argument after "prefix" keyword
             hex_arg = msg_body[len("prefix"):].strip()
             if hex_arg:
@@ -376,11 +398,11 @@ class PathBot:
                 reply = f"@[{sender}] usage: prefix <hex> (e.g. prefix fb:1f:7a)"
         # Handle paths command
         elif is_paths:
-            log.info(f"Paths from {sender}")
+            log.info(f"Paths from {sender} on ch{channel_id}")
             reply = self._build_paths_reply(sender)
         # Handle trace command
         elif is_trace:
-            log.info(f"Trace from {sender}")
+            log.info(f"Trace from {sender} on ch{channel_id}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 resolved = self.resolver.resolve(raw_path)
                 reply = f"@[{sender}] {resolved}"
@@ -390,7 +412,7 @@ class PathBot:
                 reply = f"@[{sender}] rxed (no path data)"
         # Handle ping command
         else:
-            log.info(f"Ping from {sender}")
+            log.info(f"Ping from {sender} on ch{channel_id}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 raw_fmt = self.resolver.raw(raw_path)
                 reply = f"@[{sender}] {raw_fmt}"
@@ -400,10 +422,10 @@ class PathBot:
                 reply = f"@[{sender}] rxed"
 
         chunks = self._split_message(reply)
-        log.info(f"Replying ({len(chunks)} part(s)): {reply}")
+        log.info(f"Replying on ch{channel_id} ({len(chunks)} part(s)): {reply}")
 
         for chunk in chunks:
-            result = await self._mc.commands.send_chan_msg(self.config.bot.channel, chunk)
+            result = await self._mc.commands.send_chan_msg(channel_id, chunk)
             if result.type == EventType.ERROR:
                 log.error(f"Failed to send reply chunk: {result.payload}")
                 self.stats.errors += 1
@@ -413,10 +435,10 @@ class PathBot:
 
         out_ts = time.time()
         await self.message_store.add(
-            "out", sender, reply, out_ts, self.config.bot.channel,
+            "out", sender, reply, out_ts, channel_id,
         )
         await self.bus.publish(
             AppEvent.MSG_OUT,
-            {"recipient": sender, "text": reply, "timestamp": out_ts},
+            {"recipient": sender, "text": reply, "timestamp": out_ts, "channel": channel_id},
         )
         await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())

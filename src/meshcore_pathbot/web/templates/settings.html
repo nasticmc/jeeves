@@ -3,7 +3,7 @@
 {% block content %}
 <h2>Settings</h2>
 
-<form hx-post="/settings" hx-target="#toast-container" hx-swap="afterbegin">
+<form hx-post="/settings" hx-target="#toast-container" hx-swap="afterbegin" id="settings-form">
     <fieldset>
         <legend>Connection</legend>
         <label>
@@ -42,9 +42,15 @@
 
     <fieldset>
         <legend>Bot</legend>
+        <label>
+            Node Name
+            <input type="text" name="node_name" value="{{ config.bot.node_name }}" placeholder="e.g. Jeeves">
+        </label>
+        <small>Friendly name for this MeshCore node.</small>
+
         <div class="grid">
             <label>
-                Channel
+                Default Channel (legacy)
                 <input type="number" name="channel" value="{{ config.bot.channel }}" min="0" max="7">
             </label>
             <label>
@@ -52,6 +58,8 @@
                 <input type="text" name="ignore_list" value="{{ config.bot.ignore_list | join(', ') }}" placeholder="Comma-separated names">
             </label>
         </div>
+        <small>Default channel is used when no channels are configured below.</small>
+
         <div class="grid">
             <label>
                 Home Repeater Name
@@ -75,6 +83,59 @@
         </div>
         <small>Bot location helps disambiguate repeaters with colliding prefixes.</small>
     </fieldset>
+
+    <fieldset>
+        <legend>Channel Management</legend>
+        <p><small>Configure which channels the bot listens on and which commands are enabled per channel. Changes require a restart.</small></p>
+
+        <table id="channels-table" role="grid">
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>trace</th>
+                    <th>ping</th>
+                    <th>paths</th>
+                    <th>prefix</th>
+                    <th></th>
+                </tr>
+            </thead>
+            <tbody id="channels-body">
+                {% for ch in config.bot.channels %}
+                <tr data-channel-id="{{ ch.id }}">
+                    <td><strong>{{ ch.id }}</strong></td>
+                    <td><input type="text" class="ch-name" value="{{ ch.name }}" placeholder="Channel {{ ch.id }}"></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="trace" {% if 'trace' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="ping" {% if 'ping' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="paths" {% if 'paths' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="prefix" {% if 'prefix' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><button type="button" class="outline secondary remove-channel-btn" title="Remove channel">&times;</button></td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        {% if not config.bot.channels %}
+        <p id="no-channels-msg"><small>No channels configured. Using default channel {{ config.bot.channel }} with all commands enabled.</small></p>
+        {% endif %}
+
+        <div class="grid">
+            <label>
+                Channel ID (0-7)
+                <input type="number" id="new-channel-id" min="0" max="7" value="0" placeholder="0-7">
+            </label>
+            <label>
+                Channel Name
+                <input type="text" id="new-channel-name" placeholder="e.g. General">
+            </label>
+            <label style="display: flex; align-items: flex-end;">
+                <button type="button" id="add-channel-btn" class="outline">Add Channel</button>
+            </label>
+        </div>
+    </fieldset>
+
+    <!-- Hidden field that carries the channels JSON to the server -->
+    <input type="hidden" name="channels_json" id="channels-json" value="[]">
 
     <fieldset>
         <legend>Web Server</legend>
@@ -127,4 +188,108 @@
 {% if not config.config_path %}
 <p><small>No config file path set. Start with <code>--config path/to/config.toml</code> to enable saving.</small></p>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function() {
+    const tbody = document.getElementById('channels-body');
+    const addBtn = document.getElementById('add-channel-btn');
+    const hiddenInput = document.getElementById('channels-json');
+    const noChannelsMsg = document.getElementById('no-channels-msg');
+
+    function syncHiddenField() {
+        const rows = tbody.querySelectorAll('tr[data-channel-id]');
+        const channels = [];
+        rows.forEach(function(row) {
+            const id = parseInt(row.getAttribute('data-channel-id'), 10);
+            const name = row.querySelector('.ch-name').value.trim();
+            const cmds = [];
+            row.querySelectorAll('.ch-cmd').forEach(function(cb) {
+                if (cb.checked) cmds.push(cb.getAttribute('data-cmd'));
+            });
+            channels.push({ id: id, name: name, enabled_commands: cmds });
+        });
+        hiddenInput.value = JSON.stringify(channels);
+
+        if (noChannelsMsg) {
+            noChannelsMsg.style.display = rows.length > 0 ? 'none' : '';
+        }
+    }
+
+    function addChannelRow(id, name, cmds) {
+        // Check for duplicate channel ID
+        var existing = tbody.querySelector('tr[data-channel-id="' + id + '"]');
+        if (existing) {
+            alert('Channel ' + id + ' is already configured.');
+            return;
+        }
+
+        if (noChannelsMsg) noChannelsMsg.style.display = 'none';
+
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-channel-id', id);
+
+        var allCmds = ['trace', 'ping', 'paths', 'prefix'];
+        var html = '<td><strong>' + id + '</strong></td>';
+        html += '<td><input type="text" class="ch-name" value="' + (name || '') + '" placeholder="Channel ' + id + '"></td>';
+        allCmds.forEach(function(cmd) {
+            var checked = cmds.indexOf(cmd) >= 0 ? ' checked' : '';
+            html += '<td><input type="checkbox" class="ch-cmd" data-cmd="' + cmd + '"' + checked + '></td>';
+        });
+        html += '<td><button type="button" class="outline secondary remove-channel-btn" title="Remove channel">&times;</button></td>';
+
+        tr.innerHTML = html;
+        tbody.appendChild(tr);
+
+        // Attach listeners to new elements
+        tr.querySelector('.remove-channel-btn').addEventListener('click', function() {
+            tr.remove();
+            syncHiddenField();
+        });
+        tr.querySelector('.ch-name').addEventListener('input', syncHiddenField);
+        tr.querySelectorAll('.ch-cmd').forEach(function(cb) {
+            cb.addEventListener('change', syncHiddenField);
+        });
+
+        syncHiddenField();
+    }
+
+    // Attach remove listeners to existing rows
+    tbody.querySelectorAll('.remove-channel-btn').forEach(function(btn) {
+        btn.addEventListener('click', function() {
+            btn.closest('tr').remove();
+            syncHiddenField();
+        });
+    });
+
+    // Attach change listeners to existing rows
+    tbody.querySelectorAll('.ch-name').forEach(function(input) {
+        input.addEventListener('input', syncHiddenField);
+    });
+    tbody.querySelectorAll('.ch-cmd').forEach(function(cb) {
+        cb.addEventListener('change', syncHiddenField);
+    });
+
+    addBtn.addEventListener('click', function() {
+        var idInput = document.getElementById('new-channel-id');
+        var nameInput = document.getElementById('new-channel-name');
+        var id = parseInt(idInput.value, 10);
+        if (isNaN(id) || id < 0 || id > 7) {
+            alert('Channel ID must be between 0 and 7.');
+            return;
+        }
+        addChannelRow(id, nameInput.value.trim(), ['trace', 'ping', 'paths', 'prefix']);
+        nameInput.value = '';
+    });
+
+    // Sync on form submit
+    document.getElementById('settings-form').addEventListener('htmx:configRequest', function() {
+        syncHiddenField();
+    });
+
+    // Initial sync
+    syncHiddenField();
+})();
+</script>
 {% endblock %}

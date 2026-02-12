@@ -10,7 +10,7 @@
             <span class="status-dot {% if connected %}status-ok{% else %}status-err{% endif %}"></span>
             {% if connected %}Connected{% else %}Disconnected{% endif %}
         </p>
-        <p><small>Channel: {{ channel }}</small></p>
+        <p><small>Channels: {% for ch in channels %}{{ ch.id }}{% if ch.name %} ({{ ch.name }}){% endif %}{% if not loop.last %}, {% endif %}{% endfor %}</small></p>
     </article>
     <article>
         <header>Messages</header>
