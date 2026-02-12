@@ -60,3 +60,30 @@ async def test_repeater_db_cleanup_stale_entries(tmp_path: Path) -> None:
     assert deleted == 1
     assert db.count == 1
     assert db.get_all()[0]["public_key"] == "bb2222"
+
+
+@pytest.mark.asyncio
+async def test_repeater_db_uses_alternate_last_seen_fields_and_preserves_existing(tmp_path: Path) -> None:
+    db = RepeaterDB(tmp_path / "repeaters.json")
+    await db.load()
+
+    contact = {
+        "public_key": "cc3333",
+        "adv_type": 2,
+        "adv_name": "R2",
+        "last_heard": 1_700_000_123_000,
+    }
+    first = await db.update_from_contact(contact)
+
+    # A subsequent payload without any timestamp should not reset the stored value.
+    no_ts = {
+        "public_key": "cc3333",
+        "adv_type": 2,
+        "adv_name": "R2",
+    }
+    second = await db.update_from_contact(no_ts)
+
+    assert first is not None
+    assert second is not None
+    assert first["last_seen"] == 1_700_000_123
+    assert second["last_seen"] == 1_700_000_123
