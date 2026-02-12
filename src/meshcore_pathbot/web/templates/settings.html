@@ -3,6 +3,95 @@
 {% block content %}
 <h2>Settings</h2>
 
+<!-- ═══════════════ Radio Settings (live from device) ═══════════════ -->
+<fieldset id="radio-settings-section">
+    <legend>Radio Settings</legend>
+    <p><small>Live settings read from the connected radio. Changes are sent directly to the device.</small></p>
+
+    <div id="radio-not-connected" style="display:none;">
+        <p><small>Radio not connected. Connect to view and change radio settings.</small></p>
+    </div>
+
+    <div id="radio-settings-fields">
+        <div id="radio-loading"><p aria-busy="true">Loading radio info...</p></div>
+
+        <div id="radio-fields-inner" style="display:none;">
+            <div class="grid">
+                <label>
+                    Radio Name
+                    <input type="text" id="radio-name" placeholder="Device name">
+                </label>
+                <label>
+                    Public Key
+                    <input type="text" id="radio-pubkey" readonly class="radio-readonly">
+                </label>
+            </div>
+            <div class="grid">
+                <label>
+                    TX Power
+                    <input type="number" id="radio-tx-power" min="0" max="30">
+                </label>
+                <label>
+                    Max TX Power
+                    <input type="number" id="radio-max-tx-power" readonly class="radio-readonly">
+                </label>
+            </div>
+            <div class="grid">
+                <label>
+                    Frequency (MHz)
+                    <input type="number" id="radio-freq" step="any">
+                </label>
+                <label>
+                    Bandwidth (kHz)
+                    <input type="number" id="radio-bw" step="any">
+                </label>
+            </div>
+            <div class="grid">
+                <label>
+                    Spreading Factor
+                    <input type="number" id="radio-sf" min="5" max="12">
+                </label>
+                <label>
+                    Coding Rate
+                    <input type="number" id="radio-cr" min="5" max="8">
+                </label>
+            </div>
+            <div class="grid">
+                <label>
+                    Latitude
+                    <input type="number" id="radio-lat" step="any">
+                </label>
+                <label>
+                    Longitude
+                    <input type="number" id="radio-lon" step="any">
+                </label>
+            </div>
+            <button type="button" id="radio-save-btn" class="outline">Save Radio Settings</button>
+        </div>
+    </div>
+</fieldset>
+
+<!-- ═══════════════ Radio Channels (live from device) ═══════════════ -->
+<fieldset id="radio-channels-section">
+    <legend>Radio Channels</legend>
+    <p><small>Channel list read directly from the radio. Edit a name and click save to update the device.</small></p>
+
+    <div id="radio-channels-loading"><p aria-busy="true">Loading channels from radio...</p></div>
+
+    <table id="radio-channels-table" role="grid" style="display:none;">
+        <thead>
+            <tr>
+                <th>Slot</th>
+                <th>Channel Name</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody id="radio-channels-body"></tbody>
+    </table>
+</fieldset>
+
+<hr>
+
 <form hx-post="/settings" hx-target="#toast-container" hx-swap="afterbegin" id="settings-form">
     <fieldset>
         <legend>Connection</legend>
@@ -193,6 +282,7 @@
 {% block scripts %}
 <script>
 (function() {
+    /* ────────── Bot Channel Management (existing) ────────── */
     const tbody = document.getElementById('channels-body');
     const addBtn = document.getElementById('add-channel-btn');
     const hiddenInput = document.getElementById('channels-json');
@@ -218,7 +308,6 @@
     }
 
     function addChannelRow(id, name, cmds) {
-        // Check for duplicate channel ID
         var existing = tbody.querySelector('tr[data-channel-id="' + id + '"]');
         if (existing) {
             alert('Channel ' + id + ' is already configured.');
@@ -242,7 +331,6 @@
         tr.innerHTML = html;
         tbody.appendChild(tr);
 
-        // Attach listeners to new elements
         tr.querySelector('.remove-channel-btn').addEventListener('click', function() {
             tr.remove();
             syncHiddenField();
@@ -255,7 +343,6 @@
         syncHiddenField();
     }
 
-    // Attach remove listeners to existing rows
     tbody.querySelectorAll('.remove-channel-btn').forEach(function(btn) {
         btn.addEventListener('click', function() {
             btn.closest('tr').remove();
@@ -263,7 +350,6 @@
         });
     });
 
-    // Attach change listeners to existing rows
     tbody.querySelectorAll('.ch-name').forEach(function(input) {
         input.addEventListener('input', syncHiddenField);
     });
@@ -283,13 +369,195 @@
         nameInput.value = '';
     });
 
-    // Sync on form submit
     document.getElementById('settings-form').addEventListener('htmx:configRequest', function() {
         syncHiddenField();
     });
 
-    // Initial sync
     syncHiddenField();
+
+    /* ────────── Helper: show toast ────────── */
+    function showToast(message, type) {
+        var container = document.getElementById('toast-container');
+        var div = document.createElement('div');
+        div.className = 'toast toast-' + (type || 'info');
+        div.setAttribute('role', 'alert');
+        div.innerHTML = '<span>' + message + '</span><button class="toast-close" onclick="this.parentElement.remove()">&times;</button>';
+        container.prepend(div);
+        setTimeout(function() {
+            div.style.opacity = '0';
+            setTimeout(function() { div.remove(); }, 300);
+        }, 5000);
+    }
+
+    /* ────────── Radio Settings (live from device) ────────── */
+    var radioFields = document.getElementById('radio-fields-inner');
+    var radioLoading = document.getElementById('radio-loading');
+    var radioDisconnected = document.getElementById('radio-not-connected');
+
+    function loadRadioInfo() {
+        fetch('/api/radio/info')
+            .then(function(r) { return r.json(); })
+            .then(function(info) {
+                radioLoading.style.display = 'none';
+                if (info.error) {
+                    radioDisconnected.style.display = '';
+                    radioFields.style.display = 'none';
+                    return;
+                }
+                radioDisconnected.style.display = 'none';
+                radioFields.style.display = '';
+
+                document.getElementById('radio-name').value = info.name || '';
+                document.getElementById('radio-pubkey').value = info.public_key || '';
+                document.getElementById('radio-tx-power').value = info.tx_power != null ? info.tx_power : '';
+                document.getElementById('radio-max-tx-power').value = info.max_tx_power != null ? info.max_tx_power : '';
+                document.getElementById('radio-freq').value = info.radio_freq != null ? info.radio_freq : '';
+                document.getElementById('radio-bw').value = info.radio_bw != null ? info.radio_bw : '';
+                document.getElementById('radio-sf').value = info.radio_sf != null ? info.radio_sf : '';
+                document.getElementById('radio-cr').value = info.radio_cr != null ? info.radio_cr : '';
+                document.getElementById('radio-lat').value = info.adv_lat != null ? info.adv_lat : '';
+                document.getElementById('radio-lon').value = info.adv_lon != null ? info.adv_lon : '';
+            })
+            .catch(function() {
+                radioLoading.style.display = 'none';
+                radioDisconnected.style.display = '';
+            });
+    }
+
+    document.getElementById('radio-save-btn').addEventListener('click', function() {
+        var btn = this;
+        btn.setAttribute('aria-busy', 'true');
+        btn.disabled = true;
+
+        var name = document.getElementById('radio-name').value.trim();
+        var txPower = parseInt(document.getElementById('radio-tx-power').value, 10);
+        var freq = parseFloat(document.getElementById('radio-freq').value);
+        var bw = parseFloat(document.getElementById('radio-bw').value);
+        var sf = parseInt(document.getElementById('radio-sf').value, 10);
+        var cr = parseInt(document.getElementById('radio-cr').value, 10);
+        var lat = parseFloat(document.getElementById('radio-lat').value);
+        var lon = parseFloat(document.getElementById('radio-lon').value);
+
+        // Send all radio settings in parallel
+        var promises = [];
+
+        if (name) {
+            promises.push(
+                fetch('/api/radio/name', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({name: name})
+                }).then(function(r) { return r.json(); })
+            );
+        }
+
+        if (!isNaN(txPower)) {
+            promises.push(
+                fetch('/api/radio/tx_power', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({tx_power: txPower})
+                }).then(function(r) { return r.json(); })
+            );
+        }
+
+        if (!isNaN(freq) && !isNaN(bw) && !isNaN(sf) && !isNaN(cr)) {
+            promises.push(
+                fetch('/api/radio/params', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({freq: freq, bw: bw, sf: sf, cr: cr})
+                }).then(function(r) { return r.json(); })
+            );
+        }
+
+        if (!isNaN(lat) && !isNaN(lon)) {
+            promises.push(
+                fetch('/api/radio/coords', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({lat: lat, lon: lon})
+                }).then(function(r) { return r.json(); })
+            );
+        }
+
+        Promise.all(promises).then(function(results) {
+            btn.removeAttribute('aria-busy');
+            btn.disabled = false;
+            var errors = results.filter(function(r) { return r.error; });
+            if (errors.length > 0) {
+                showToast('Some settings failed: ' + errors.map(function(e) { return e.error; }).join(', '), 'error');
+            } else {
+                showToast('Radio settings saved to device', 'success');
+                loadRadioInfo();
+            }
+        }).catch(function() {
+            btn.removeAttribute('aria-busy');
+            btn.disabled = false;
+            showToast('Failed to save radio settings', 'error');
+        });
+    });
+
+    loadRadioInfo();
+
+    /* ────────── Radio Channels (live from device) ────────── */
+    var rcBody = document.getElementById('radio-channels-body');
+    var rcTable = document.getElementById('radio-channels-table');
+    var rcLoading = document.getElementById('radio-channels-loading');
+
+    function loadRadioChannels() {
+        fetch('/api/radio/channels')
+            .then(function(r) { return r.json(); })
+            .then(function(data) {
+                rcLoading.style.display = 'none';
+                if (data.error) {
+                    rcLoading.innerHTML = '<p><small>' + data.error + '</small></p>';
+                    rcLoading.style.display = '';
+                    return;
+                }
+                rcTable.style.display = '';
+                rcBody.innerHTML = '';
+
+                data.forEach(function(ch) {
+                    var tr = document.createElement('tr');
+                    var idx = ch.channel_idx;
+                    var name = ch.channel_name || '';
+                    tr.innerHTML =
+                        '<td><strong>' + idx + '</strong></td>' +
+                        '<td><input type="text" class="rc-name" data-idx="' + idx + '" value="' + name.replace(/"/g, '&quot;') + '" placeholder="(empty)"></td>' +
+                        '<td><button type="button" class="outline rc-save-btn" data-idx="' + idx + '">Save</button></td>';
+                    rcBody.appendChild(tr);
+
+                    tr.querySelector('.rc-save-btn').addEventListener('click', function() {
+                        var saveBtn = this;
+                        var newName = tr.querySelector('.rc-name').value.trim();
+                        saveBtn.setAttribute('aria-busy', 'true');
+                        saveBtn.disabled = true;
+
+                        fetch('/api/radio/channel', {
+                            method: 'POST', headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({channel_idx: idx, channel_name: newName})
+                        })
+                        .then(function(r) { return r.json(); })
+                        .then(function(result) {
+                            saveBtn.removeAttribute('aria-busy');
+                            saveBtn.disabled = false;
+                            if (result.error) {
+                                showToast('Channel ' + idx + ': ' + result.error, 'error');
+                            } else {
+                                showToast('Channel ' + idx + ' updated on radio', 'success');
+                            }
+                        })
+                        .catch(function() {
+                            saveBtn.removeAttribute('aria-busy');
+                            saveBtn.disabled = false;
+                            showToast('Failed to update channel ' + idx, 'error');
+                        });
+                    });
+                });
+            })
+            .catch(function() {
+                rcLoading.style.display = 'none';
+            });
+    }
+
+    loadRadioChannels();
 })();
 </script>
 {% endblock %}
