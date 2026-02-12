@@ -38,7 +38,7 @@ def create_guest_app(
     Only exposes paths, overlaps, and repeaters (without delete).
     """
     app = FastAPI(
-        title="MeshCore PathBot (Guest)",
+        title="MeshCore Jeeves2.0",
         version="0.1.0",
         lifespan=lifespan,
     )

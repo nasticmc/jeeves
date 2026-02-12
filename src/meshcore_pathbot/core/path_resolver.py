@@ -163,9 +163,10 @@ class PathResolver:
                         [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0, "resolved": False}]
                     )
                 else:
-                    for m in matches:
-                        m["resolved"] = True
-                    candidates.append(matches)
+                    candidates.append([
+                        {**m, "resolved": True}
+                        for m in matches
+                    ])
 
         bot_loc = self._bot_location()
         resolved = []
@@ -202,6 +203,11 @@ class PathResolver:
             hop = dict(best)
             hop["ambiguous"] = i not in home_hits
             hop["candidates"] = len(options)
+            if len(options) > 1:
+                hop["options"] = sorted(
+                    [dict(option) for option in options],
+                    key=lambda option: option.get("name", ""),
+                )
             resolved.append(hop)
 
         # Calculate hop-to-hop distances
