@@ -121,7 +121,19 @@ class RepeaterDB:
         name = str(contact.get("adv_name", contact.get("name", "unknown")))
         lat = float(contact.get("adv_lat", contact.get("lat", 0.0)))
         lon = float(contact.get("adv_lon", contact.get("lon", 0.0)))
-        last_seen = self._normalize_timestamp(contact.get("last_seen"))
+        raw_last_seen = (
+            contact.get("last_seen")
+            or contact.get("last_seen_ts")
+            or contact.get("last_seen_at")
+            or contact.get("last_heard")
+            or contact.get("last_heard_ts")
+            or contact.get("last_heard_at")
+        )
+        last_seen = (
+            self._normalize_timestamp(raw_last_seen)
+            if raw_last_seen is not None
+            else None
+        )
 
         return {
             "public_key": pub_key,
@@ -136,7 +148,9 @@ class RepeaterDB:
     def _upsert_sync(self, entry: dict) -> None:
         """Upsert a repeater entry into SQLite and cache."""
         existing = self.nodes.get(entry["public_key"])
-        if existing:
+        if entry["last_seen"] is None:
+            entry["last_seen"] = existing.get("last_seen", int(time.time())) if existing else int(time.time())
+        elif existing:
             entry["last_seen"] = max(existing.get("last_seen", 0), entry["last_seen"])
 
         self._conn.execute(
