@@ -119,3 +119,9 @@ def test_resolve_detailed_home_repeater_last_hop_uses_bot_location(tmp_path: Pat
     assert hops[1]["name"] == "Home"
     assert hops[1]["lat"] == 12.34
     assert hops[1]["lon"] == 56.78
+
+
+def test_normalize_path_accepts_plain_colon_and_comma_delimiters() -> None:
+    assert PathResolver.normalize_path("c132fa9d7a") == "c132fa9d7a"
+    assert PathResolver.normalize_path("c1:32:fa:9d:7a") == "c132fa9d7a"
+    assert PathResolver.normalize_path("c1,32,fa,9d,7a") == "c132fa9d7a"
