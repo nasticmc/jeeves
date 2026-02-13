@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from meshcore_pathbot.web.routes.overlaps import _annotate_collision_distances
+from meshcore_pathbot.web.routes.overlaps import _annotate_collision_distances, _filter_collisions_by_prefix
 
 
 def test_annotate_collision_distances_sets_nearest_and_group_max() -> None:
@@ -49,3 +49,26 @@ def test_annotate_collision_distances_handles_missing_locations() -> None:
     assert known["closest_distance_km"] is None
     assert unknown["closest_distance_km"] is None
     assert group["max_distance_km"] is None
+
+
+def test_filter_collisions_by_prefix_matches_prefix_start() -> None:
+    collisions = [
+        {"prefix": "ab", "repeaters": [{"name": "A"}]},
+        {"prefix": "ac", "repeaters": [{"name": "B"}]},
+        {"prefix": "ba", "repeaters": [{"name": "C"}]},
+    ]
+
+    filtered = _filter_collisions_by_prefix(collisions, "a")
+
+    assert [group["prefix"] for group in filtered] == ["ab", "ac"]
+
+
+def test_filter_collisions_by_prefix_is_case_insensitive_and_trimmed() -> None:
+    collisions = [
+        {"prefix": "af", "repeaters": [{"name": "A"}]},
+        {"prefix": "bf", "repeaters": [{"name": "B"}]},
+    ]
+
+    filtered = _filter_collisions_by_prefix(collisions, "  AF ")
+
+    assert [group["prefix"] for group in filtered] == ["af"]

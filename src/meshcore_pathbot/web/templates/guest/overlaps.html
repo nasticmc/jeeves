@@ -6,9 +6,27 @@
 <p>
     <small>
         {{ collision_count }} overlapping prefixes |
-        {{ total_affected }} repeaters affected
+        {% if prefix_query %}
+            {{ filtered_total_affected }} repeaters affected (filtered)
+        {% else %}
+            {{ total_affected }} repeaters affected
+        {% endif %}
     </small>
 </p>
+
+<form method="get" action="/overlaps">
+    <input
+        type="search"
+        name="prefix"
+        value="{{ prefix_query }}"
+        placeholder="Filter by prefix (e.g. ab)"
+        aria-label="Filter overlaps by prefix"
+    >
+    <button type="submit">Search</button>
+    {% if prefix_query %}
+    <a href="/overlaps" role="button" class="secondary">Clear</a>
+    {% endif %}
+</form>
 
 {% if collisions %}
 <p><small>These repeaters share the same hex prefix ID, which means the bot must use geographic disambiguation to tell them apart in path resolution.</small></p>

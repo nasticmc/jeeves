@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from ...core.geo import haversine, has_location
 from ..dependencies import get_db
@@ -48,20 +48,33 @@ def _annotate_collision_distances(collisions: list[dict]) -> list[dict]:
     return annotated_groups
 
 
+def _filter_collisions_by_prefix(collisions: list[dict], prefix_query: str) -> list[dict]:
+    """Filter overlap groups by a prefix search query."""
+    query = prefix_query.strip().lower()
+    if not query:
+        return collisions
+    return [group for group in collisions if str(group.get("prefix", "")).lower().startswith(query)]
+
+
 @router.get("/overlaps")
 async def overlaps_page(
     request: Request,
+    prefix: str = Query(default=""),
     db=Depends(get_db),
 ):
     templates = request.app.state.templates
     collisions = _annotate_collision_distances(db.get_collisions())
+    filtered_collisions = _filter_collisions_by_prefix(collisions, prefix)
     total_affected = sum(len(g["repeaters"]) for g in collisions)
+    filtered_total_affected = sum(len(g["repeaters"]) for g in filtered_collisions)
     return templates.TemplateResponse(
         "overlaps.html",
         {
             "request": request,
-            "collisions": collisions,
-            "collision_count": len(collisions),
+            "collisions": filtered_collisions,
+            "collision_count": len(filtered_collisions),
             "total_affected": total_affected,
+            "filtered_total_affected": filtered_total_affected,
+            "prefix_query": prefix.strip().lower(),
         },
     )
