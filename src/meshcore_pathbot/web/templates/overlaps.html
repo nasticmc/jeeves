@@ -14,7 +14,7 @@
     </small>
 </p>
 
-<form method="get" action="/overlaps">
+<form method="get" action="{{ request.url.path }}">
     <input
         type="search"
         name="prefix"
@@ -24,7 +24,7 @@
     >
     <button type="submit">Search</button>
     {% if prefix_query %}
-    <a href="/overlaps" role="button" class="secondary">Clear</a>
+    <a href="{{ request.url.path }}" role="button" class="secondary">Clear</a>
     {% endif %}
 </form>
 
