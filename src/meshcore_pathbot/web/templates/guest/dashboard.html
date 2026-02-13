@@ -10,7 +10,6 @@
         <thead>
             <tr>
                 <th>Time</th>
-                <th>Peer</th>
                 <th>Response</th>
             </tr>
         </thead>
@@ -18,7 +17,6 @@
             {% for msg in ping_responses %}
             <tr>
                 <td title="{{ msg.timestamp | fmt_datetime }}">{{ msg.timestamp | fmt_time }}</td>
-                <td>{{ msg.peer }}</td>
                 <td>{{ msg.text }}</td>
             </tr>
             {% endfor %}
