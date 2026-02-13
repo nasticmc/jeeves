@@ -57,6 +57,7 @@ async def save_settings(
     guest_web_enabled: str = Form(""),
     guest_web_host: str = Form("0.0.0.0"),
     guest_web_port: int = Form(8076),
+    guest_ping_channels: list[int] | None = Form(default=None),
     log_level: str = Form("INFO"),
 ):
     templates = request.app.state.templates
@@ -113,6 +114,10 @@ async def save_settings(
             continue
 
     config.bot.channels = parsed_channels
+
+    active_channel_ids = {ch.id for ch in config.bot.get_active_channels() if "ping" in ch.enabled_commands}
+    selected_guest_ping_channels = sorted({ch for ch in (guest_ping_channels or []) if ch in active_channel_ids})
+    config.guest_web.ping_channels = selected_guest_ping_channels
 
     # Save to file if a config path is set
     if config.config_path:

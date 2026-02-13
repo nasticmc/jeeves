@@ -86,8 +86,9 @@ def create_guest_app(
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-    from .routes import guest_api, guest_overlaps, guest_paths, guest_repeaters
+    from .routes import guest_api, guest_dashboard, guest_overlaps, guest_paths, guest_repeaters
 
+    app.include_router(guest_dashboard.router)
     app.include_router(guest_paths.router)
     app.include_router(guest_overlaps.router)
     app.include_router(guest_repeaters.router)

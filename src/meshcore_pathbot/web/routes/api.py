@@ -96,7 +96,6 @@ async def packets_hourly(store=Depends(get_message_store)):
         "labels": [datetime.fromtimestamp(d["hour_ts"]).strftime("%H:%M") for d in data],
         "msg_in": [d["msg_in"] for d in data],
         "msg_out": [d["msg_out"] for d in data],
-        "advert": [d["advert"] for d in data],
     }
 
 

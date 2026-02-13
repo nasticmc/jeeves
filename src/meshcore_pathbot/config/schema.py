@@ -88,6 +88,7 @@ class GuestWebConfig(BaseModel):
     enabled: bool = False
     host: str = "0.0.0.0"
     port: int = Field(default=8076, ge=1, le=65535)
+    ping_channels: list[int] = Field(default_factory=list)
 
 
 class LoggingConfig(BaseModel):
