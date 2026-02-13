@@ -93,3 +93,24 @@ async def test_message_store_upgrades_existing_db_with_rxlog_column(tmp_path: Pa
     rows = store.get_recent(1)
     assert rows[0]["id"] == "old-1"
     assert rows[0]["rxlog"] == ""
+
+
+@pytest.mark.asyncio
+async def test_get_recent_ping_responses_with_channel_filter(tmp_path: Path) -> None:
+    store = MessageStore(tmp_path / "messages.db")
+    await store.load()
+
+    await store.add("in", "Alice", "Alice: ping", timestamp=100.0, channel=1)
+    await store.add("out", "Alice", "@[Alice] rxed", timestamp=101.0, channel=1)
+    await store.add("in", "Bob", "Bob: trace", timestamp=110.0, channel=1)
+    await store.add("out", "Bob", "@[Bob] trace result", timestamp=111.0, channel=1)
+    await store.add("in", "Alice", "Alice: ping", timestamp=120.0, channel=2)
+    await store.add("out", "Alice", "@[Alice] rxed (2 hops)", timestamp=121.0, channel=2)
+
+    all_channels = store.get_recent_ping_responses(channels=[1, 2], count=10)
+    assert [row["channel"] for row in all_channels] == [2, 1]
+    assert all("Alice" in row["peer"] for row in all_channels)
+
+    ch1_only = store.get_recent_ping_responses(channels=[1], count=10)
+    assert len(ch1_only) == 1
+    assert ch1_only[0]["channel"] == 1

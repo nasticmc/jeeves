@@ -30,11 +30,6 @@
         <p style="font-size:1.8rem; margin:0;"><strong>{{ totals_24h.msg_in }}</strong></p>
         <p><small>received &nbsp;|&nbsp; <strong>{{ totals_24h.msg_out }}</strong> sent</small></p>
     </article>
-    <article>
-        <header>Adverts <small>(24h)</small></header>
-        <p style="font-size:1.8rem; margin:0;"><strong>{{ totals_24h.advert }}</strong></p>
-        <p><small>node advertisements heard</small></p>
-    </article>
 </div>
 
 <article>
@@ -76,13 +71,7 @@
                             data: data.msg_out,
                             borderColor: '#0074d9',
                             backgroundColor: 'rgba(0,116,217,0.08)',
-                        }),
-                        Object.assign({}, base, {
-                            label: 'Adverts',
-                            data: data.advert,
-                            borderColor: '#ff851b',
-                            backgroundColor: 'rgba(255,133,27,0.08)',
-                        }),
+                        })
                     ],
                 },
                 options: {

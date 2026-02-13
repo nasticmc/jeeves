@@ -262,7 +262,18 @@
                 <input type="number" name="guest_web_port" value="{{ config.guest_web.port }}" min="1" max="65535">
             </label>
         </div>
-        <small>The guest dashboard only exposes Repeaters, Overlaps, and Paths pages (read-only). Requires restart to take effect.</small>
+
+        <label>Guest Ping Display Channels</label>
+        <div class="grid">
+            {% set guest_ping_candidates = config.bot.get_active_channels() %}
+            {% for ch in guest_ping_candidates if 'ping' in ch.enabled_commands %}
+            <label>
+                <input type="checkbox" name="guest_ping_channels" value="{{ ch.id }}" {% if ch.id in config.guest_web.ping_channels %}checked{% endif %}>
+                {{ ch.id }}{% if ch.name %} ({{ ch.name }}){% endif %}
+            </label>
+            {% endfor %}
+        </div>
+        <small>Select channels shown on the guest ping dashboard. If none are selected, all ping-enabled channels are shown. Requires restart to take effect.</small>
     </fieldset>
 
     <fieldset>
