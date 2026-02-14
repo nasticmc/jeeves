@@ -87,3 +87,25 @@ async def test_repeater_db_uses_alternate_last_seen_fields_and_preserves_existin
     assert second is not None
     assert first["last_seen"] == 1_700_000_123
     assert second["last_seen"] == 1_700_000_123
+
+
+@pytest.mark.asyncio
+async def test_guest_visit_stats_are_recorded_and_aggregated(tmp_path: Path) -> None:
+    db = RepeaterDB(tmp_path / "repeaters.json")
+    await db.load()
+
+    await db.record_guest_visit("1.1.1.1", "/")
+    await db.record_guest_visit("1.1.1.1", "/paths")
+    await db.record_guest_visit("2.2.2.2", "/")
+
+    guest_stats = db.guest_visit_stats(top_limit=5, recent_limit=5)
+
+    assert guest_stats["total_hits"] == 3
+    assert guest_stats["unique_ips"] == 2
+    assert guest_stats["unique_pages"] == 2
+    assert guest_stats["top_pages"][0] == {"path": "/", "hits": 2}
+    assert guest_stats["top_ips"][0] == {"ip": "1.1.1.1", "hits": 2}
+    assert len(guest_stats["recent_visits"]) == 3
+
+    combined_stats = db.stats()
+    assert combined_stats["guest_visitors"]["total_hits"] == 3

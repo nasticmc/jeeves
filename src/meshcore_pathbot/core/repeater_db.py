@@ -58,6 +58,20 @@ class RepeaterDB:
 
             CREATE INDEX IF NOT EXISTS idx_repeaters_prefix ON repeaters(prefix);
             CREATE INDEX IF NOT EXISTS idx_repeaters_last_seen ON repeaters(last_seen);
+
+            CREATE TABLE IF NOT EXISTS guest_page_visits (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ip_address TEXT NOT NULL,
+                path TEXT NOT NULL,
+                visited_at INTEGER NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_guest_page_visits_visited_at
+                ON guest_page_visits(visited_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_guest_page_visits_ip
+                ON guest_page_visits(ip_address);
+            CREATE INDEX IF NOT EXISTS idx_guest_page_visits_path
+                ON guest_page_visits(path);
             """
         )
         self._conn.commit()
@@ -276,6 +290,82 @@ class RepeaterDB:
             "unique_prefixes": len(prefixes),
             "collisions": collisions,
             "with_location": with_location,
+            "guest_visitors": self.guest_visit_stats(),
+        }
+
+    async def record_guest_visit(self, ip_address: str, path: str) -> None:
+        """Persist a guest page view for admin visibility."""
+        clean_ip = (ip_address or "unknown").strip() or "unknown"
+        clean_path = (path or "/").strip() or "/"
+        visited_at = int(time.time())
+
+        async with self._lock:
+            self._conn.execute(
+                "INSERT INTO guest_page_visits (ip_address, path, visited_at) VALUES (?, ?, ?)",
+                (clean_ip, clean_path, visited_at),
+            )
+            self._conn.commit()
+
+    def guest_visit_stats(self, top_limit: int = 10, recent_limit: int = 25) -> dict:
+        """Return guest visitor aggregation for admin stats pages."""
+        totals = self._conn.execute(
+            """
+            SELECT
+                COUNT(1) AS total_hits,
+                COUNT(DISTINCT ip_address) AS unique_ips,
+                COUNT(DISTINCT path) AS unique_pages
+            FROM guest_page_visits
+            """
+        ).fetchone()
+
+        top_pages = [
+            {"path": row["path"], "hits": row["hits"]}
+            for row in self._conn.execute(
+                """
+                SELECT path, COUNT(1) AS hits
+                FROM guest_page_visits
+                GROUP BY path
+                ORDER BY hits DESC, path ASC
+                LIMIT ?
+                """,
+                (top_limit,),
+            ).fetchall()
+        ]
+
+        top_ips = [
+            {"ip": row["ip_address"], "hits": row["hits"]}
+            for row in self._conn.execute(
+                """
+                SELECT ip_address, COUNT(1) AS hits
+                FROM guest_page_visits
+                GROUP BY ip_address
+                ORDER BY hits DESC, ip_address ASC
+                LIMIT ?
+                """,
+                (top_limit,),
+            ).fetchall()
+        ]
+
+        recent_visits = [
+            {"ip": row["ip_address"], "path": row["path"], "visited_at": row["visited_at"]}
+            for row in self._conn.execute(
+                """
+                SELECT ip_address, path, visited_at
+                FROM guest_page_visits
+                ORDER BY visited_at DESC, id DESC
+                LIMIT ?
+                """,
+                (recent_limit,),
+            ).fetchall()
+        ]
+
+        return {
+            "total_hits": totals["total_hits"],
+            "unique_ips": totals["unique_ips"],
+            "unique_pages": totals["unique_pages"],
+            "top_pages": top_pages,
+            "top_ips": top_ips,
+            "recent_visits": recent_visits,
         }
 
     def stats_str(self) -> str:

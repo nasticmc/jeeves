@@ -86,6 +86,21 @@ def create_guest_app(
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
+
+    @app.middleware("http")
+    async def track_guest_page_visits(request, call_next):
+        response = await call_next(request)
+
+        if request.method == "GET" and request.url.path in {"/", "/paths", "/overlaps", "/repeaters"}:
+            forwarded_for = request.headers.get("x-forwarded-for", "")
+            if forwarded_for:
+                ip_address = forwarded_for.split(",", 1)[0].strip()
+            else:
+                ip_address = request.client.host if request.client else "unknown"
+            await db.record_guest_visit(ip_address=ip_address, path=request.url.path)
+
+        return response
+
     from .routes import guest_api, guest_dashboard, guest_overlaps, guest_paths, guest_repeaters
 
     app.include_router(guest_dashboard.router)
