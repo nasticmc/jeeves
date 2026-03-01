@@ -39,6 +39,8 @@ WMO_DESCRIPTIONS: dict[int, str] = {
     99: "Thunderstorm with heavy hail",
 }
 
+LIGHTNING_CODES: frozenset[int] = frozenset({95, 96, 99})  # WMO thunderstorm codes
+
 _OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 _NOMINATIM_BASE = "https://nominatim.openstreetmap.org/search"
 _NOMINATIM_HEADERS = {"User-Agent": "MeshCore-PathBot/1.0 (weather command)"}
@@ -120,6 +122,20 @@ async def get_forecast(lat: float, lon: float) -> dict:
     return data
 
 
+async def check_lightning(lat: float, lon: float) -> bool:
+    """Return True if current weather at the given coordinates is a thunderstorm."""
+    try:
+        data = await get_current_weather(lat, lon)
+        current = data.get("current", {})
+        code = current.get("weather_code")
+        if code is None:
+            return False
+        return int(code) in LIGHTNING_CODES
+    except Exception as exc:
+        log.warning("Lightning check failed: %s", exc)
+        return False
+
+
 async def current_weather_reply(sender: str, lat: float, lon: float, location_name: str) -> str:
     """Fetch current weather and return a formatted bot reply string."""
     data = await get_current_weather(lat, lon)
@@ -165,5 +181,34 @@ async def forecast_reply(sender: str, lat: float, lon: float, location_name: str
         day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
 
     return f"@[{sender}] {location_name} 3-day: {', '.join(day_parts)}"
+
+
+async def forecast_broadcast(lat: float, lon: float, location_name: str) -> str:
+    """Fetch 3-day forecast and return a formatted broadcast string (no @sender prefix)."""
+    data = await get_forecast(lat, lon)
+    daily = data.get("daily", {})
+    times = daily.get("time", [])
+    codes = daily.get("weather_code", [])
+    maxes = daily.get("temperature_2m_max", [])
+    mins = daily.get("temperature_2m_min", [])
+
+    if not times:
+        return f"Forecast unavailable for {location_name}"
+
+    day_parts = []
+    for i in range(min(3, len(times))):
+        try:
+            date_obj = datetime.strptime(times[i], "%Y-%m-%d")
+            day_label = date_obj.strftime("%a")
+        except ValueError:
+            day_label = times[i]
+        lo = mins[i] if i < len(mins) else "?"
+        hi = maxes[i] if i < len(maxes) else "?"
+        desc = _wmo_desc(int(codes[i])) if i < len(codes) else "?"
+        lo_s = f"{lo:.0f}" if isinstance(lo, float) else str(lo)
+        hi_s = f"{hi:.0f}" if isinstance(hi, float) else str(hi)
+        day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
+
+    return f"{location_name} 3-day forecast: {', '.join(day_parts)}"
 
 

@@ -23,9 +23,21 @@ weather_home_name = "Hampton Park" # Default suburb for weather/forecast command
 weather_home_lat = -38.0291        # Latitude of home suburb
 weather_home_lon = 145.2591        # Longitude of home suburb
 
+# Lightning alerts — broadcast when thunderstorm detected at bot location
+# Requires bot.lat and bot.lon to be set
+lightning_alert_enabled = false
+lightning_alert_channels = []      # Channel IDs to alert on (empty = all active channels)
+lightning_alert_interval_minutes = 15  # How often to poll (minutes)
+
+# Daily forecast — send 3-day forecast for the weather home location at a set hour
+daily_forecast_enabled = false
+daily_forecast_channels = []       # Channel IDs to broadcast on (empty = all active channels)
+daily_forecast_hour = 6            # Hour to send forecast (Melbourne time, 0-23)
+
 # Channel management — define multiple channels with per-channel command control.
 # If no [[bot.channels]] entries exist, the bot falls back to bot.channel above.
 # enabled_commands can include: "trace", "ping", "paths", "prefix", "weather", "forecast"
+# Lightning alerts and daily forecast are separate scheduled features (not per-user commands)
 # Note: "weather" and "forecast" default to off — add them explicitly to enable per channel
 # rate_limit_enabled enables per-user command rate limiting on the channel
 # rate_limit_seconds is the per-user cooldown window (default 120 seconds)
