@@ -404,19 +404,23 @@ class PathBot:
                 await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
 
     async def _daily_forecast_loop(self) -> None:
-        """Send a daily 3-day forecast broadcast at the configured hour (Melbourne time)."""
-        try:
-            from zoneinfo import ZoneInfo
-            tz: datetime.tzinfo = ZoneInfo("Australia/Melbourne")
-        except Exception:
-            log.warning("zoneinfo unavailable — daily forecast will use UTC")
-            tz = datetime.timezone.utc
-
+        """Send a daily 3-day forecast broadcast at the configured hour (local time)."""
         cfg = self.config.bot
-        log.info("Daily forecast loop: will broadcast at %02d:00 Melbourne time", cfg.daily_forecast_hour)
+
+        tz: datetime.tzinfo | None = None
+        if cfg.timezone:
+            try:
+                from zoneinfo import ZoneInfo
+                tz = ZoneInfo(cfg.timezone)
+                log.info("Daily forecast loop: will broadcast at %02d:00 %s", cfg.daily_forecast_hour, cfg.timezone)
+            except Exception:
+                log.warning("Invalid timezone %r — falling back to system local time", cfg.timezone)
+
+        if tz is None:
+            log.info("Daily forecast loop: will broadcast at %02d:00 local time", cfg.daily_forecast_hour)
 
         while True:
-            now = datetime.datetime.now(tz)
+            now = datetime.datetime.now(tz) if tz is not None else datetime.datetime.now().astimezone()
             target = now.replace(
                 hour=cfg.daily_forecast_hour, minute=0, second=0, microsecond=0
             )
@@ -424,7 +428,7 @@ class PathBot:
                 target += datetime.timedelta(days=1)
             sleep_seconds = (target - now).total_seconds()
             log.debug(
-                "Daily forecast: sleeping %.0fs until %s",
+                "Daily forecast: sleeping %.0fs until %s (local time)",
                 sleep_seconds,
                 target.strftime("%Y-%m-%d %H:%M %Z"),
             )

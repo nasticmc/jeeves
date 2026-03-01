@@ -99,7 +99,7 @@ async def get_current_weather(lat: float, lon: float) -> dict:
         f"{_OPEN_METEO_BASE}"
         f"?latitude={lat}&longitude={lon}"
         f"&current=temperature_2m,weather_code,wind_speed_10m"
-        f"&timezone=Australia%2FMelbourne"
+        f"&timezone=auto"
     )
     data = await _fetch_json(url)
     if not isinstance(data, dict):
@@ -114,7 +114,7 @@ async def get_forecast(lat: float, lon: float) -> dict:
         f"?latitude={lat}&longitude={lon}"
         f"&daily=weather_code,temperature_2m_max,temperature_2m_min"
         f"&forecast_days=3"
-        f"&timezone=Australia%2FMelbourne"
+        f"&timezone=auto"
     )
     data = await _fetch_json(url)
     if not isinstance(data, dict):
