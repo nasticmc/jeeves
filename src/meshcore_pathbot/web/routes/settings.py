@@ -61,6 +61,7 @@ async def save_settings(
     daily_forecast_enabled: str = Form(""),
     daily_forecast_channels: list[int] | None = Form(default=None),
     daily_forecast_hour: int = Form(6),
+    timezone: str = Form(""),
     web_host: str = Form("0.0.0.0"),
     web_port: int = Form(8075),
     guest_web_enabled: str = Form(""),
@@ -96,6 +97,7 @@ async def save_settings(
     config.bot.daily_forecast_channels = sorted(set(daily_forecast_channels or []))
     config.bot.daily_forecast_enabled = (daily_forecast_enabled == "true") and bool(config.bot.daily_forecast_channels)
     config.bot.daily_forecast_hour = max(0, min(23, daily_forecast_hour))
+    config.bot.timezone = timezone.strip()
     config.web.host = web_host
     config.web.port = web_port
     config.guest_web.enabled = guest_web_enabled == "true"

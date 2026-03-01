@@ -227,12 +227,6 @@
             <input type="checkbox" name="daily_forecast_enabled" value="true" {% if config.bot.daily_forecast_enabled %}checked{% endif %}>
             Enable daily forecast broadcast
         </label>
-        <div class="grid">
-            <label>
-                Broadcast Hour (Melbourne time, 0-23)
-                <input type="number" name="daily_forecast_hour" value="{{ config.bot.daily_forecast_hour }}" min="0" max="23" step="1">
-            </label>
-        </div>
         <label>Forecast Channels</label>
         <div class="grid">
             {% for ch in config.bot.get_active_channels() %}
@@ -243,6 +237,18 @@
             {% endfor %}
         </div>
         <small>At least one channel must be selected; leaving all unchecked will disable daily forecast.</small>
+
+        <div class="grid">
+            <label>
+                Broadcast Hour (0-23)
+                <input type="number" name="daily_forecast_hour" value="{{ config.bot.daily_forecast_hour }}" min="0" max="23" step="1">
+            </label>
+            <label>
+                Timezone
+                <input type="text" name="timezone" value="{{ config.bot.timezone }}" placeholder="e.g. Australia/Melbourne (leave blank for system local time)">
+            </label>
+        </div>
+        <small>Leave timezone blank to use the server's local time. Use an IANA timezone name (e.g. <code>Australia/Melbourne</code>, <code>America/New_York</code>) to override.</small>
     </fieldset>
 
     <fieldset>

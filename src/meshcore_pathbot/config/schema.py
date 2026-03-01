@@ -58,6 +58,7 @@ class BotConfig(BaseModel):
     daily_forecast_enabled: bool = False
     daily_forecast_channels: list[int] = Field(default_factory=list)
     daily_forecast_hour: int = Field(default=6, ge=0, le=23)
+    timezone: str = ""  # IANA timezone (e.g. "Australia/Melbourne"); empty = system local time
 
     def get_active_channels(self) -> list[ChannelConfig]:
         """Return configured channels, falling back to legacy single channel."""
