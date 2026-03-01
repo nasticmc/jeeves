@@ -217,7 +217,7 @@
             </label>
             {% endfor %}
         </div>
-        <small>Leave all channels unchecked to broadcast to all active channels.</small>
+        <small>At least one channel must be selected; leaving all unchecked will disable lightning alerts.</small>
     </fieldset>
 
     <fieldset>
@@ -242,7 +242,7 @@
             </label>
             {% endfor %}
         </div>
-        <small>Leave all channels unchecked to broadcast to all active channels. Requires a restart after changing.</small>
+        <small>At least one channel must be selected; leaving all unchecked will disable daily forecast.</small>
     </fieldset>
 
     <fieldset>
@@ -486,6 +486,25 @@
     });
 
     syncHiddenField();
+
+    /* ────────── Lightning / Daily Forecast: disable enable when no channels ────────── */
+    function syncFeatureEnabled(channelCheckboxName, enabledCheckboxName) {
+        var channelBoxes = document.querySelectorAll('input[name="' + channelCheckboxName + '"]');
+        var enabledBox = document.querySelector('input[name="' + enabledCheckboxName + '"]');
+        if (!enabledBox || channelBoxes.length === 0) return;
+
+        function update() {
+            var anyChecked = Array.prototype.some.call(channelBoxes, function(cb) { return cb.checked; });
+            if (!anyChecked) enabledBox.checked = false;
+            enabledBox.disabled = !anyChecked;
+        }
+
+        channelBoxes.forEach(function(cb) { cb.addEventListener('change', update); });
+        update();
+    }
+
+    syncFeatureEnabled('lightning_alert_channels', 'lightning_alert_enabled');
+    syncFeatureEnabled('daily_forecast_channels', 'daily_forecast_enabled');
 
     /* ────────── Helper: show toast ────────── */
     function showToast(message, type) {

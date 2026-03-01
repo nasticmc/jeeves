@@ -90,11 +90,11 @@ async def save_settings(
     config.bot.weather_home_name = weather_home_name.strip()
     config.bot.weather_home_lat = weather_home_lat
     config.bot.weather_home_lon = weather_home_lon
-    config.bot.lightning_alert_enabled = lightning_alert_enabled == "true"
     config.bot.lightning_alert_channels = sorted(set(lightning_alert_channels or []))
+    config.bot.lightning_alert_enabled = (lightning_alert_enabled == "true") and bool(config.bot.lightning_alert_channels)
     config.bot.lightning_alert_interval_minutes = max(1, lightning_alert_interval_minutes)
-    config.bot.daily_forecast_enabled = daily_forecast_enabled == "true"
     config.bot.daily_forecast_channels = sorted(set(daily_forecast_channels or []))
+    config.bot.daily_forecast_enabled = (daily_forecast_enabled == "true") and bool(config.bot.daily_forecast_channels)
     config.bot.daily_forecast_hour = max(0, min(23, daily_forecast_hour))
     config.web.host = web_host
     config.web.port = web_port
