@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
+import datetime
 import logging
 import time
 from dataclasses import dataclass, field
@@ -104,6 +107,8 @@ class PathBot:
         self._mc: MeshCore | None = None
         self._latest_rx_path: dict[str, Any] = {}
         self._last_command_at_by_user: dict[tuple[int, str], float] = {}
+        self._lightning_task: asyncio.Task | None = None
+        self._daily_forecast_task: asyncio.Task | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -138,8 +143,28 @@ class PathBot:
             f"Repeater DB: {self.db.stats_str()}"
         )
 
+        if self.config.bot.lightning_alert_enabled:
+            self._lightning_task = asyncio.create_task(
+                self._lightning_alert_loop(), name="lightning-alerts"
+            )
+            log.info("Lightning alert task started")
+
+        if self.config.bot.daily_forecast_enabled:
+            self._daily_forecast_task = asyncio.create_task(
+                self._daily_forecast_loop(), name="daily-forecast"
+            )
+            log.info("Daily forecast task started")
+
     async def stop(self) -> None:
         """Gracefully disconnect from MeshCore."""
+        for task in (self._lightning_task, self._daily_forecast_task):
+            if task:
+                task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await task
+        self._lightning_task = None
+        self._daily_forecast_task = None
+
         if self._mc:
             try:
                 await self._mc.stop_auto_message_fetching()
@@ -315,6 +340,121 @@ class PathBot:
                 seen.append(f)
 
         return f"@[{sender}] {len(seen)} paths: {', '.join(seen)}"
+
+    async def send_channel_message(self, channel_id: int, text: str) -> bool:
+        """Send a text message on the given channel. Returns True on success."""
+        if not self._mc:
+            log.warning("Cannot send message: not connected to MeshCore")
+            return False
+        chunks = self._split_message(text)
+        for chunk in chunks:
+            result = await self._mc.commands.send_chan_msg(channel_id, chunk)
+            if result.type == EventType.ERROR:
+                log.error(f"Failed to send message on ch{channel_id}: {result.payload}")
+                self.stats.errors += 1
+                return False
+            self.stats.messages_out += 1
+        return True
+
+    async def _lightning_alert_loop(self) -> None:
+        """Poll Open-Meteo for thunderstorm activity near the bot and broadcast alerts."""
+        cfg = self.config.bot
+        bot_lat = cfg.lat
+        bot_lon = cfg.lon
+
+        if bot_lat == 0.0 and bot_lon == 0.0:
+            log.warning(
+                "Lightning alerts enabled but bot.lat/bot.lon not set — task disabled. "
+                "Set bot.lat and bot.lon in config."
+            )
+            return
+
+        interval = cfg.lightning_alert_interval_minutes * 60
+        storm_active = False
+        log.info(
+            f"Lightning alert loop: checking every {cfg.lightning_alert_interval_minutes} min "
+            f"at ({bot_lat}, {bot_lon})"
+        )
+
+        while True:
+            await asyncio.sleep(interval)
+
+            if not self._mc:
+                continue
+
+            is_storm = await weather_svc.check_lightning(bot_lat, bot_lon)
+
+            channels = cfg.lightning_alert_channels or [ch.id for ch in cfg.get_active_channels()]
+
+            if is_storm and not storm_active:
+                storm_active = True
+                msg = "Lightning alert: Thunderstorm detected within 50 km of this node!"
+                log.info("Lightning alert triggered — sending to channels %s", channels)
+                for ch_id in channels:
+                    await self.send_channel_message(ch_id, msg)
+                    await self.message_store.add("out", "system", msg, time.time(), ch_id)
+                await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
+            elif not is_storm and storm_active:
+                storm_active = False
+                msg = "Lightning all-clear: Thunderstorm has passed."
+                log.info("Lightning all-clear — sending to channels %s", channels)
+                for ch_id in channels:
+                    await self.send_channel_message(ch_id, msg)
+                    await self.message_store.add("out", "system", msg, time.time(), ch_id)
+                await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
+
+    async def _daily_forecast_loop(self) -> None:
+        """Send a daily 3-day forecast broadcast at the configured hour (Melbourne time)."""
+        try:
+            from zoneinfo import ZoneInfo
+            tz: datetime.tzinfo = ZoneInfo("Australia/Melbourne")
+        except Exception:
+            log.warning("zoneinfo unavailable — daily forecast will use UTC")
+            tz = datetime.timezone.utc
+
+        cfg = self.config.bot
+        log.info("Daily forecast loop: will broadcast at %02d:00 Melbourne time", cfg.daily_forecast_hour)
+
+        while True:
+            now = datetime.datetime.now(tz)
+            target = now.replace(
+                hour=cfg.daily_forecast_hour, minute=0, second=0, microsecond=0
+            )
+            if now >= target:
+                target += datetime.timedelta(days=1)
+            sleep_seconds = (target - now).total_seconds()
+            log.debug(
+                "Daily forecast: sleeping %.0fs until %s",
+                sleep_seconds,
+                target.strftime("%Y-%m-%d %H:%M %Z"),
+            )
+            await asyncio.sleep(sleep_seconds)
+
+            if not self._mc:
+                log.debug("Daily forecast: not connected, skipping today")
+                await asyncio.sleep(60)
+                continue
+
+            try:
+                msg = await weather_svc.forecast_broadcast(
+                    cfg.weather_home_lat,
+                    cfg.weather_home_lon,
+                    cfg.weather_home_name,
+                )
+            except Exception as exc:
+                log.warning("Daily forecast fetch failed: %s", exc)
+                await asyncio.sleep(60)
+                continue
+
+            channels = cfg.daily_forecast_channels or [ch.id for ch in cfg.get_active_channels()]
+            log.info("Daily forecast: sending to channels %s", channels)
+            for ch_id in channels:
+                await self.send_channel_message(ch_id, msg)
+                await self.message_store.add("out", "system", msg, time.time(), ch_id)
+            await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
+
+            # Brief pause so we don't re-trigger within the same minute
+            await asyncio.sleep(90)
 
     async def _on_rx_log_data(self, event) -> None:
         """Handle RX_LOG_DATA — extract and cache path info for the next channel message."""
