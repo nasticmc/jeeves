@@ -17,3 +17,22 @@
 ## Data retention
 - Repeater cleanup is daily and uses a 7-day retention window.
 - If touching cleanup logic, keep retention-related UI copy and backend behavior aligned.
+
+## Adding new bot commands
+To add a new bot command, touch these files in order:
+1. `src/meshcore_pathbot/config/schema.py` — Add any new config fields to `BotConfig`.
+2. `src/meshcore_pathbot/web/routes/settings.py` — Add the command name to `ALL_COMMANDS` and add any new form fields.
+3. `src/meshcore_pathbot/web/templates/settings.html` — Add a column to the Channel Management table and any new fieldset for related config.
+4. `src/meshcore_pathbot/core/bot.py` — Detect the command keyword in `_on_channel_msg` (use `startswith` for commands that accept arguments) and add a handler block.
+5. `config.example.toml` — Document any new config keys.
+6. Add tests in `tests/`.
+
+New commands default to **off** — do not add them to `ChannelConfig.enabled_commands` default list. Operators must explicitly enable them per channel.
+
+## Weather commands
+The bot supports `weather [postcode]` and `forecast [postcode]` commands:
+- Without a postcode, uses the configured home location (`bot.weather_home_name/lat/lon`; defaults to Hampton Park, VIC).
+- With a postcode, geocodes it via Nominatim (OpenStreetMap) then fetches from Open-Meteo.
+- Both APIs are free and require no API key.
+- HTTP calls use Python's `urllib.request` via `asyncio` executor — no extra runtime dependency.
+- Both commands are off by default; enable per channel in the Channel Management settings table.
