@@ -14,7 +14,7 @@ from ..dependencies import get_bus, get_config
 
 router = APIRouter()
 
-ALL_COMMANDS = ["trace", "ping", "paths", "prefix"]
+ALL_COMMANDS = ["trace", "ping", "paths", "prefix", "weather", "forecast"]
 
 
 @router.get("/settings")
@@ -52,6 +52,9 @@ async def save_settings(
     home_repeater_prefix: str = Form(""),
     bot_lat: float = Form(0.0),
     bot_lon: float = Form(0.0),
+    weather_home_name: str = Form("Hampton Park"),
+    weather_home_lat: float = Form(-38.0291),
+    weather_home_lon: float = Form(145.2591),
     web_host: str = Form("0.0.0.0"),
     web_port: int = Form(8075),
     guest_web_enabled: str = Form(""),
@@ -78,6 +81,9 @@ async def save_settings(
     config.bot.home_repeater_prefix = home_repeater_prefix.strip().lower()
     config.bot.lat = bot_lat
     config.bot.lon = bot_lon
+    config.bot.weather_home_name = weather_home_name.strip()
+    config.bot.weather_home_lat = weather_home_lat
+    config.bot.weather_home_lon = weather_home_lon
     config.web.host = web_host
     config.web.port = web_port
     config.guest_web.enabled = guest_web_enabled == "true"

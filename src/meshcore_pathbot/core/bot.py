@@ -16,6 +16,7 @@ from ..events.types import AppEvent
 from .message_store import MessageStore
 from .path_resolver import PathResolver
 from .repeater_db import RepeaterDB
+from . import weather as weather_svc
 
 log = logging.getLogger("pathbot.bot")
 
@@ -364,12 +365,18 @@ class PathBot:
         is_ping = "ping" in body_lower
         is_paths = "paths" in body_lower
         is_prefix = body_lower.startswith("prefix")
+        is_weather = body_lower.startswith("weather")
+        is_forecast = body_lower.startswith("forecast")
 
-        if not is_trace and not is_ping and not is_paths and not is_prefix:
+        if not is_trace and not is_ping and not is_paths and not is_prefix and not is_weather and not is_forecast:
             return
 
         # Determine which command matched and check per-channel permission
-        if is_prefix:
+        if is_weather:
+            cmd_name = "weather"
+        elif is_forecast:
+            cmd_name = "forecast"
+        elif is_prefix:
             cmd_name = "prefix"
         elif is_paths:
             cmd_name = "paths"
@@ -401,8 +408,48 @@ class PathBot:
 
         self.stats.commands_processed += 1
 
+        # Handle weather command — current conditions for home suburb or given postcode
+        if is_weather:
+            log.info(f"Weather from {sender} on ch{channel_id}")
+            postcode = msg_body[len("weather"):].strip() or None
+            try:
+                if postcode:
+                    coords = await weather_svc.get_coords_for_postcode(postcode)
+                    if coords is None:
+                        reply = f"@[{sender}] Could not find postcode {postcode}"
+                    else:
+                        lat, lon, name = coords
+                        reply = await weather_svc.current_weather_reply(sender, lat, lon, name)
+                else:
+                    cfg = self.config.bot
+                    reply = await weather_svc.current_weather_reply(
+                        sender, cfg.weather_home_lat, cfg.weather_home_lon, cfg.weather_home_name
+                    )
+            except Exception as exc:
+                log.warning(f"Weather fetch failed: {exc}")
+                reply = f"@[{sender}] Weather unavailable, try again later"
+        # Handle forecast command — 3-day outlook for home suburb or given postcode
+        elif is_forecast:
+            log.info(f"Forecast from {sender} on ch{channel_id}")
+            postcode = msg_body[len("forecast"):].strip() or None
+            try:
+                if postcode:
+                    coords = await weather_svc.get_coords_for_postcode(postcode)
+                    if coords is None:
+                        reply = f"@[{sender}] Could not find postcode {postcode}"
+                    else:
+                        lat, lon, name = coords
+                        reply = await weather_svc.forecast_reply(sender, lat, lon, name)
+                else:
+                    cfg = self.config.bot
+                    reply = await weather_svc.forecast_reply(
+                        sender, cfg.weather_home_lat, cfg.weather_home_lon, cfg.weather_home_name
+                    )
+            except Exception as exc:
+                log.warning(f"Forecast fetch failed: {exc}")
+                reply = f"@[{sender}] Forecast unavailable, try again later"
         # Handle prefix command — look up repeater names from hex prefixes
-        if is_prefix:
+        elif is_prefix:
             log.info(f"Prefix lookup from {sender} on ch{channel_id}")
             # Extract hex argument after "prefix" keyword
             hex_arg = msg_body[len("prefix"):].strip()

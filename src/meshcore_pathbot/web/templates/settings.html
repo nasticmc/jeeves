@@ -174,6 +174,28 @@
     </fieldset>
 
     <fieldset>
+        <legend>Weather Home Location</legend>
+        <p><small>Default location used when <code>weather</code> or <code>forecast</code> commands are sent without a postcode.</small></p>
+        <div class="grid">
+            <label>
+                Home Suburb Name
+                <input type="text" name="weather_home_name" value="{{ config.bot.weather_home_name }}" placeholder="e.g. Hampton Park">
+            </label>
+        </div>
+        <div class="grid">
+            <label>
+                Latitude
+                <input type="number" name="weather_home_lat" value="{{ config.bot.weather_home_lat }}" step="any" placeholder="e.g. -38.0291">
+            </label>
+            <label>
+                Longitude
+                <input type="number" name="weather_home_lon" value="{{ config.bot.weather_home_lon }}" step="any" placeholder="e.g. 145.2591">
+            </label>
+        </div>
+        <small>Enable the <strong>weather</strong> and <strong>forecast</strong> commands per channel in the Channel Management table below.</small>
+    </fieldset>
+
+    <fieldset>
         <legend>Channel Management</legend>
         <p><small>Configure which channels the bot listens on and which commands are enabled per channel. Changes require a restart.</small></p>
 
@@ -186,6 +208,8 @@
                     <th>ping</th>
                     <th>paths</th>
                     <th>prefix</th>
+                    <th>weather</th>
+                    <th>forecast</th>
                     <th>Rate Limit</th>
                     <th>Timeout (s)</th>
                     <th></th>
@@ -200,6 +224,8 @@
                     <td><input type="checkbox" class="ch-cmd" data-cmd="ping" {% if 'ping' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="paths" {% if 'paths' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="prefix" {% if 'prefix' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="weather" {% if 'weather' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="forecast" {% if 'forecast' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-rate-limit-enabled" {% if ch.rate_limit_enabled %}checked{% endif %}></td>
                     <td><input type="number" class="ch-rate-limit-seconds" value="{{ ch.rate_limit_seconds }}" min="1" step="1"></td>
                     <td><button type="button" class="outline secondary remove-channel-btn" title="Remove channel">&times;</button></td>
@@ -345,7 +371,7 @@
         var tr = document.createElement('tr');
         tr.setAttribute('data-channel-id', id);
 
-        var allCmds = ['trace', 'ping', 'paths', 'prefix'];
+        var allCmds = ['trace', 'ping', 'paths', 'prefix', 'weather', 'forecast'];
         var html = '<td><strong>' + id + '</strong></td>';
         html += '<td><input type="text" class="ch-name" value="' + (name || '') + '" placeholder="Channel ' + id + '"></td>';
         allCmds.forEach(function(cmd) {

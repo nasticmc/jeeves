@@ -45,6 +45,9 @@ class BotConfig(BaseModel):
     home_repeater_prefix: str = ""
     lat: float = 0.0
     lon: float = 0.0
+    weather_home_name: str = "Hampton Park"
+    weather_home_lat: float = -38.0291
+    weather_home_lon: float = 145.2591
 
     def get_active_channels(self) -> list[ChannelConfig]:
         """Return configured channels, falling back to legacy single channel."""
