@@ -77,3 +77,25 @@ def test_channel_rate_limit_can_be_disabled() -> None:
     asyncio.run(bot._on_channel_msg(event))
 
     assert len(commands.sent) == 2
+
+
+def test_ping_reply_is_sender_ack_without_path_details() -> None:
+    config = AppConfig()
+    config.bot.channels = [
+        ChannelConfig(
+            id=2,
+            enabled_commands=["ping"],
+            rate_limit_enabled=False,
+        )
+    ]
+
+    bot = PathBot(config=config, db=DummyDB(), bus=EventBus(), message_store=DummyStore())
+    commands = DummyCommands()
+    bot._mc = SimpleNamespace(commands=commands)
+
+    bot._latest_rx_path = {"path": "a1b2c3", "path_len": 3}
+    event = SimpleNamespace(payload={"text": "Alice: ping", "channel_idx": 2})
+
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] rxed")]

@@ -622,13 +622,7 @@ class PathBot:
         # Handle ping command
         else:
             log.info(f"Ping from {sender} on ch{channel_id}")
-            if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
-                raw_fmt = self.resolver.raw(raw_path)
-                reply = f"@[{sender}] {raw_fmt}"
-            elif path_len > 0:
-                reply = f"@[{sender}] rxed ({path_len} hops)"
-            else:
-                reply = f"@[{sender}] rxed"
+            reply = f"@[{sender}] rxed"
 
         chunks = self._split_message(reply)
         log.info(f"Replying on ch{channel_id} ({len(chunks)} part(s)): {reply}")
