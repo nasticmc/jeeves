@@ -687,12 +687,13 @@ class PathBot:
         else:
             log.info(f"Ping from {sender} on ch{channel_id}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
-                resolved = self.resolver.resolve(raw_path)
-                if path_hash_size > 1:
-                    raw_display = self._format_hop_path(full_path, path_hash_size)
-                    if raw_display:
-                        resolved = f"{resolved}; raw {raw_display}"
-                reply = f"@[{sender}] rxed {resolved}"
+                display_path = self._format_hop_path(full_path, path_hash_size)
+                if not display_path:
+                    display_path = self._format_hop_path(raw_path, 1)
+                if display_path:
+                    reply = f"@[{sender}] rxed {display_path} ({path_len} hops)"
+                else:
+                    reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
             elif path_len > 0:
                 reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
             else:
