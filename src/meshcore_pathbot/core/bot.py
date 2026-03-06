@@ -29,10 +29,41 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
 
     The payload hex format is:
       byte 0: header
-      byte 1: path_len
-      next path_len bytes: path node prefixes
+      byte 1: path byte
+        - top 2 bits: path hash size per hop (1..4 bytes)
+        - lower 6 bits: hop count
+      next path_len * path_hash_size bytes: path hashes
+
+    PathBot resolves repeaters using 1-byte prefixes. For multi-byte path
+    hashes, we preserve the full path and also derive a compact first-byte
+    form for resolver compatibility.
     """
     result: dict[str, Any] = {}
+
+    if isinstance(payload, dict):
+        path_len = payload.get("path_len")
+        path_hash_size = payload.get("path_hash_size")
+        raw_path = payload.get("path")
+        if isinstance(path_len, int) and path_len >= 0:
+            result["path_len"] = path_len
+        if isinstance(path_hash_size, int) and path_hash_size > 0:
+            result["path_hash_size"] = path_hash_size
+        if isinstance(raw_path, str):
+            result["full_path"] = raw_path.lower().replace(" ", "")
+
+        if "path_len" in result and "path_hash_size" in result and "full_path" in result:
+            hop_len = result["path_hash_size"] * 2
+            required_len = result["path_len"] * hop_len
+            if len(result["full_path"]) >= required_len:
+                full_path = result["full_path"][:required_len]
+                compact_path = "".join(
+                    full_path[i : i + 2]
+                    for i in range(0, required_len, hop_len)
+                )
+                if len(compact_path) == result["path_len"] * 2:
+                    result["path"] = compact_path
+                    result["full_path"] = full_path
+                    return result
 
     hex_str = None
     if isinstance(payload, dict):
@@ -52,19 +83,29 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
         return result
 
     try:
-        path_len = int(hex_str[2:4], 16)
+        path_byte = int(hex_str[2:4], 16)
     except ValueError:
         return result
 
+    path_hash_size = ((path_byte & 0xC0) >> 6) + 1
+    path_len = path_byte & 0x3F
+
     result["path_len"] = path_len
+    result["path_hash_size"] = path_hash_size
 
     path_start = 4
-    path_end = path_start + (path_len * 2)
+    path_end = path_start + (path_len * path_hash_size * 2)
 
     if len(hex_str) < path_end:
         return result
 
-    result["path"] = hex_str[path_start:path_end]
+    full_path = hex_str[path_start:path_end]
+    hop_hex_len = path_hash_size * 2
+    result["full_path"] = full_path
+    result["path"] = "".join(
+        full_path[i : i + 2]
+        for i in range(0, len(full_path), hop_hex_len)
+    )
     return result
 
 
@@ -467,6 +508,20 @@ class PathBot:
             self._latest_rx_path = parsed
             log.debug(f"RX log path: {parsed}")
 
+
+    @staticmethod
+    def _format_hop_path(raw_path: str, hash_size: int) -> str:
+        """Format a raw hop path using hash-size aware separators."""
+        if not raw_path or hash_size <= 0:
+            return ""
+        hop_hex_len = hash_size * 2
+        if len(raw_path) < hop_hex_len or len(raw_path) % hop_hex_len != 0:
+            return ""
+        return ":".join(
+            raw_path[i : i + hop_hex_len]
+            for i in range(0, len(raw_path), hop_hex_len)
+        )
+
     async def _on_channel_msg(self, event) -> None:
         """Handle incoming channel message — check for trace, ping, or paths."""
         data = event.payload
@@ -481,9 +536,14 @@ class PathBot:
         rx = self._latest_rx_path
         self._latest_rx_path = {}
         raw_path = rx.get("path", "")
+        full_path = rx.get("full_path", raw_path)
+        path_hash_size = rx.get("path_hash_size", 1)
         path_len = rx.get("path_len", data.get("path_len", 0))
 
-        log.debug(f"Channel {channel_id} msg from {sender}: {text} (path={raw_path}, path_len={path_len})")
+        log.debug(
+            f"Channel {channel_id} msg from {sender}: {text} "
+            f"(path={raw_path}, full_path={full_path}, path_hash_size={path_hash_size}, path_len={path_len})"
+        )
 
         self.stats.messages_in += 1
         self.stats.last_message_at = time.time()
@@ -614,6 +674,10 @@ class PathBot:
             log.info(f"Trace from {sender} on ch{channel_id}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
                 resolved = self.resolver.resolve(raw_path)
+                if path_hash_size > 1:
+                    raw_display = self._format_hop_path(full_path, path_hash_size)
+                    if raw_display:
+                        resolved = f"{resolved}; raw {raw_display}"
                 reply = f"@[{sender}] {resolved}"
             elif path_len > 0:
                 reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
@@ -622,7 +686,17 @@ class PathBot:
         # Handle ping command
         else:
             log.info(f"Ping from {sender} on ch{channel_id}")
-            reply = f"@[{sender}] rxed"
+            if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
+                resolved = self.resolver.resolve(raw_path)
+                if path_hash_size > 1:
+                    raw_display = self._format_hop_path(full_path, path_hash_size)
+                    if raw_display:
+                        resolved = f"{resolved}; raw {raw_display}"
+                reply = f"@[{sender}] rxed {resolved}"
+            elif path_len > 0:
+                reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
+            else:
+                reply = f"@[{sender}] rxed"
 
         chunks = self._split_message(reply)
         log.info(f"Replying on ch{channel_id} ({len(chunks)} part(s)): {reply}")

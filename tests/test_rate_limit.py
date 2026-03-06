@@ -10,7 +10,9 @@ from meshcore_pathbot.events.bus import EventBus
 
 
 class DummyDB:
-    pass
+    def get_by_prefix(self, prefix: str):
+        return []
+
 
 
 class DummyStore:
@@ -79,7 +81,7 @@ def test_channel_rate_limit_can_be_disabled() -> None:
     assert len(commands.sent) == 2
 
 
-def test_ping_reply_is_sender_ack_without_path_details() -> None:
+def test_ping_reply_reinstates_path_details_when_available() -> None:
     config = AppConfig()
     config.bot.channels = [
         ChannelConfig(
@@ -98,4 +100,31 @@ def test_ping_reply_is_sender_ack_without_path_details() -> None:
 
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed")]
+    assert commands.sent == [(2, "@[Alice] rxed A1 → B2 → C3 (3 hops)")]
+
+
+def test_ping_reply_includes_full_multibyte_raw_path_when_available() -> None:
+    config = AppConfig()
+    config.bot.channels = [
+        ChannelConfig(
+            id=2,
+            enabled_commands=["ping"],
+            rate_limit_enabled=False,
+        )
+    ]
+
+    bot = PathBot(config=config, db=DummyDB(), bus=EventBus(), message_store=DummyStore())
+    commands = DummyCommands()
+    bot._mc = SimpleNamespace(commands=commands)
+
+    bot._latest_rx_path = {
+        "path": "a1c3e5",
+        "full_path": "a1b2c3d4e5f6",
+        "path_hash_size": 2,
+        "path_len": 3,
+    }
+    event = SimpleNamespace(payload={"text": "Alice: ping", "channel_idx": 2})
+
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] rxed A1 → C3 → E5 (3 hops); raw a1b2:c3d4:e5f6")]
