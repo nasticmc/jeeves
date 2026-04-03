@@ -125,3 +125,85 @@ def test_normalize_path_accepts_plain_colon_and_comma_delimiters() -> None:
     assert PathResolver.normalize_path("c132fa9d7a") == "c132fa9d7a"
     assert PathResolver.normalize_path("c1:32:fa:9d:7a") == "c132fa9d7a"
     assert PathResolver.normalize_path("c1,32,fa,9d,7a") == "c132fa9d7a"
+
+
+# ── get_by_prefix: variable-length prefix matching ────────────────────────────
+
+def test_get_by_prefix_one_byte_uses_stored_prefix_field(tmp_path: Path) -> None:
+    """1-byte prefix still matches via the fast stored prefix field."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f11", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb2f22", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
+    ))
+    # Both share the "fb" 1-byte prefix
+    results = db.get_by_prefix("fb")
+    assert {r["name"] for r in results} == {"Hilltop", "Flatland"}
+
+
+def test_get_by_prefix_multibyte_filters_by_public_key(tmp_path: Path) -> None:
+    """A 4-char prefix matches only the repeater whose public_key starts with it."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f11", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb2f22", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
+    ))
+    # 2-byte prefix "fb1f" should only match Hilltop
+    results = db.get_by_prefix("fb1f")
+    assert len(results) == 1
+    assert results[0]["name"] == "Hilltop"
+
+
+# ── lookup_prefixes: multibyte path handling ──────────────────────────────────
+
+def test_lookup_prefixes_1byte_path_unchanged(tmp_path: Path) -> None:
+    """Standard 1-byte colon-separated path still works as before."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1111", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "7a2222", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    result = resolver.lookup_prefixes("fb:7a")
+    assert "Hilltop" in result
+    assert "Valley" in result
+
+
+def test_lookup_prefixes_2byte_path_uses_full_segment(tmp_path: Path) -> None:
+    """2-byte-per-hop path eliminates the collision — only the correct repeater is shown."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    # Two repeaters sharing 1-byte prefix "fb" but distinct 2-byte prefixes
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f11", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb2f22", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "7ab233", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    # Full 2-byte segments: "fb1f" and "7ab2"
+    result = resolver.lookup_prefixes("fb1f:7ab2")
+    assert "Hilltop" in result
+    assert "Valley" in result
+    assert "Flatland" not in result  # eliminated by 2-byte match
+
+
+def test_lookup_prefixes_2byte_unknown_shows_question_mark(tmp_path: Path) -> None:
+    """Unknown 2-byte prefix shows '?' instead of crashing."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    resolver = PathResolver(db)
+    result = resolver.lookup_prefixes("fb1f:7ab2")
+    assert "?" in result
