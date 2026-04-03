@@ -207,3 +207,37 @@ def test_lookup_prefixes_2byte_unknown_shows_question_mark(tmp_path: Path) -> No
     resolver = PathResolver(db)
     result = resolver.lookup_prefixes("fb1f:7ab2")
     assert "?" in result
+
+
+def test_lookup_prefixes_4char_no_separator_is_2byte(tmp_path: Path) -> None:
+    """A 4-char hex string without separator is treated as one 2-byte prefix."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f11", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb2f22", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    # "fb1f" with no separator should resolve as a single 2-byte prefix
+    result = resolver.lookup_prefixes("fb1f")
+    assert "Hilltop" in result
+    assert "Flatland" not in result  # eliminated by 2-byte match
+
+
+def test_lookup_prefixes_6char_no_separator_is_3byte(tmp_path: Path) -> None:
+    """A 6-char hex string without separator is treated as one 3-byte prefix."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f11aabb", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f22ccdd", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    # "fb1f11" with no separator should resolve as a single 3-byte prefix
+    result = resolver.lookup_prefixes("fb1f11")
+    assert "Hilltop" in result
+    assert "Flatland" not in result  # eliminated by 3-byte match
