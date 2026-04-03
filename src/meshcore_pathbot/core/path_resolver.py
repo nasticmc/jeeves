@@ -299,11 +299,10 @@ class PathResolver:
         # Detect multibyte paths before stripping separators.
         # If all colon/space/comma-separated segments are valid even-length hex
         # longer than 2 chars, treat each segment as a full multibyte hop key.
+        # A single unseparated segment of 4+ even-length hex (e.g. "fb1f", "fb1f7a")
+        # is also treated as one multibyte prefix rather than split into 1-byte chunks.
         segments = [s.strip().lower() for s in re.split(r"[:\s,]+", raw_path.strip()) if s.strip()]
-        if (
-            len(segments) > 1
-            and all(re.fullmatch(r"[0-9a-f]+", s) and len(s) > 2 and len(s) % 2 == 0 for s in segments)
-        ):
+        if all(re.fullmatch(r"[0-9a-f]+", s) and len(s) > 2 and len(s) % 2 == 0 for s in segments) and segments:
             prefixes = segments  # full segments, e.g. "fb1f" for 2-byte hashes
         else:
             raw_path = self.normalize_path(raw_path)
