@@ -266,6 +266,7 @@
                     <th>prefix</th>
                     <th>weather</th>
                     <th>forecast</th>
+                    <th>help</th>
                     <th>Rate Limit</th>
                     <th>Timeout (s)</th>
                     <th></th>
@@ -282,6 +283,7 @@
                     <td><input type="checkbox" class="ch-cmd" data-cmd="prefix" {% if 'prefix' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="weather" {% if 'weather' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="forecast" {% if 'forecast' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="help" {% if 'help' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-rate-limit-enabled" {% if ch.rate_limit_enabled %}checked{% endif %}></td>
                     <td><input type="number" class="ch-rate-limit-seconds" value="{{ ch.rate_limit_seconds }}" min="1" step="1"></td>
                     <td><button type="button" class="outline secondary remove-channel-btn" title="Remove channel">&times;</button></td>
@@ -427,7 +429,7 @@
         var tr = document.createElement('tr');
         tr.setAttribute('data-channel-id', id);
 
-        var allCmds = ['trace', 'ping', 'paths', 'prefix', 'weather', 'forecast'];
+        var allCmds = ['trace', 'ping', 'paths', 'prefix', 'weather', 'forecast', 'help'];
         var html = '<td><strong>' + id + '</strong></td>';
         html += '<td><input type="text" class="ch-name" value="' + (name || '') + '" placeholder="Channel ' + id + '"></td>';
         allCmds.forEach(function(cmd) {

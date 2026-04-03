@@ -36,7 +36,7 @@ daily_forecast_hour = 6            # Hour to send forecast (Melbourne time, 0-23
 
 # Channel management — define multiple channels with per-channel command control.
 # If no [[bot.channels]] entries exist, the bot falls back to bot.channel above.
-# enabled_commands can include: "trace", "ping", "paths", "prefix", "weather", "forecast"
+# enabled_commands can include: "trace", "ping", "paths", "prefix", "weather", "forecast", "help"
 # Lightning alerts and daily forecast are separate scheduled features (not per-user commands)
 # Note: "weather" and "forecast" default to off — add them explicitly to enable per channel
 # rate_limit_enabled enables per-user command rate limiting on the channel

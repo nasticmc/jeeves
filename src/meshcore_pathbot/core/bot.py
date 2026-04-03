@@ -571,12 +571,15 @@ class PathBot:
         is_prefix = body_lower.startswith("prefix")
         is_weather = body_lower.startswith("weather")
         is_forecast = body_lower.startswith("forecast")
+        is_help = body_lower.startswith("help")
 
-        if not is_trace and not is_ping and not is_paths and not is_prefix and not is_weather and not is_forecast:
+        if not is_trace and not is_ping and not is_paths and not is_prefix and not is_weather and not is_forecast and not is_help:
             return
 
         # Determine which command matched and check per-channel permission
-        if is_weather:
+        if is_help:
+            cmd_name = "help"
+        elif is_weather:
             cmd_name = "weather"
         elif is_forecast:
             cmd_name = "forecast"
@@ -683,6 +686,18 @@ class PathBot:
                 reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
             else:
                 reply = f"@[{sender}] rxed (no path data)"
+        # Handle help command — list enabled commands for this channel
+        elif is_help:
+            log.info(f"Help from {sender} on ch{channel_id}")
+            enabled = []
+            for ch in self.config.bot.get_active_channels():
+                if ch.id == channel_id:
+                    enabled = ch.enabled_commands
+                    break
+            if enabled:
+                reply = f"@[{sender}] cmds: {', '.join(enabled)}"
+            else:
+                reply = f"@[{sender}] no commands enabled on this channel"
         # Handle ping command
         else:
             log.info(f"Ping from {sender} on ch{channel_id}")
