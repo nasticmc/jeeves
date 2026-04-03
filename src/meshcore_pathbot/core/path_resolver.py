@@ -291,12 +291,26 @@ class PathResolver:
         Like resolve() but designed for the 'prefix' channel command.
         Returns a compact string: "fb=Hilltop, 1f=Valley, 7a=Tower"
         Unknown prefixes shown as "xx=?"
-        """
-        raw_path = self.normalize_path(raw_path)
-        if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
-            return ""
 
-        prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
+        Handles multibyte paths (e.g. "fb1f:7ab2" from a 2-byte-hash trace reply)
+        by using the full segment as the lookup key so more bytes eliminate collisions.
+        Output labels each hop with its full segment: "fb1f=Hilltop, 7ab2=Valley"
+        """
+        # Detect multibyte paths before stripping separators.
+        # If all colon/space/comma-separated segments are valid even-length hex
+        # longer than 2 chars, treat each segment as a full multibyte hop key.
+        segments = [s.strip().lower() for s in re.split(r"[:\s,]+", raw_path.strip()) if s.strip()]
+        if (
+            len(segments) > 1
+            and all(re.fullmatch(r"[0-9a-f]+", s) and len(s) > 2 and len(s) % 2 == 0 for s in segments)
+        ):
+            prefixes = segments  # full segments, e.g. "fb1f" for 2-byte hashes
+        else:
+            raw_path = self.normalize_path(raw_path)
+            if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
+                return ""
+            prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
+
         hop_count = len(prefixes)
 
         # Find all candidates for each prefix

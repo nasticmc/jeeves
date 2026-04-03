@@ -234,9 +234,16 @@ class RepeaterDB:
             return deleted
 
     def get_by_prefix(self, prefix: str) -> list[dict]:
-        """Get all repeaters matching a 1-byte hex prefix."""
+        """Get all repeaters matching a hex prefix.
+
+        For a 1-byte prefix (2 hex chars) matches the stored prefix field.
+        For longer prefixes (e.g. 4 hex chars from a 2-byte path hash) matches
+        against the full public_key, eliminating more collisions.
+        """
         prefix = prefix.lower()
-        return [n for n in self.nodes.values() if n["prefix"] == prefix]
+        if len(prefix) == 2:
+            return [n for n in self.nodes.values() if n["prefix"] == prefix]
+        return [n for n in self.nodes.values() if n["public_key"].lower().startswith(prefix)]
 
     def get_all(self) -> list[dict]:
         """Return all repeater entries sorted by name."""
