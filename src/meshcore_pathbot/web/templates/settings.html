@@ -83,11 +83,13 @@
             <tr>
                 <th>Slot</th>
                 <th>Channel Name</th>
+                <th>Channel Key</th>
                 <th></th>
             </tr>
         </thead>
         <tbody id="radio-channels-body"></tbody>
     </table>
+    <p><small>Channel Key sets the shared encryption secret for the channel. Leave blank to keep existing key. Name and Key are sent separately — set name first, then key if needed.</small></p>
 </fieldset>
 
 <hr>
@@ -660,26 +662,54 @@
                     tr.innerHTML =
                         '<td><strong>' + idx + '</strong></td>' +
                         '<td><input type="text" class="rc-name" data-idx="' + idx + '" value="' + name.replace(/"/g, '&quot;') + '" placeholder="(empty)"></td>' +
+                        '<td><input type="text" class="rc-key" data-idx="' + idx + '" value="" placeholder="Set new key..." autocomplete="off"></td>' +
                         '<td><button type="button" class="outline rc-save-btn" data-idx="' + idx + '">Save</button></td>';
                     rcBody.appendChild(tr);
 
                     tr.querySelector('.rc-save-btn').addEventListener('click', function() {
                         var saveBtn = this;
                         var newName = tr.querySelector('.rc-name').value.trim();
+                        var newKey = tr.querySelector('.rc-key').value.trim();
                         saveBtn.setAttribute('aria-busy', 'true');
                         saveBtn.disabled = true;
 
-                        fetch('/api/radio/channel', {
-                            method: 'POST', headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({channel_idx: idx, channel_name: newName})
-                        })
-                        .then(function(r) { return r.json(); })
-                        .then(function(result) {
+                        var promises = [];
+
+                        if (newName) {
+                            promises.push(
+                                fetch('/api/radio/channel', {
+                                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({channel_idx: idx, channel_name: newName})
+                                }).then(function(r) { return r.json(); })
+                            );
+                        }
+
+                        if (newKey) {
+                            var keyWithHash = newKey.startsWith('#') ? newKey : '#' + newKey;
+                            promises.push(
+                                fetch('/api/radio/channel', {
+                                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                                    body: JSON.stringify({channel_idx: idx, channel_name: keyWithHash})
+                                }).then(function(r) { return r.json(); })
+                            );
+                        }
+
+                        if (promises.length === 0) {
                             saveBtn.removeAttribute('aria-busy');
                             saveBtn.disabled = false;
-                            if (result.error) {
-                                showToast('Channel ' + idx + ': ' + result.error, 'error');
+                            showToast('No changes to save for channel ' + idx, 'info');
+                            return;
+                        }
+
+                        Promise.all(promises)
+                        .then(function(results) {
+                            saveBtn.removeAttribute('aria-busy');
+                            saveBtn.disabled = false;
+                            var errors = results.filter(function(r) { return r && r.error; });
+                            if (errors.length > 0) {
+                                showToast('Channel ' + idx + ': ' + errors.map(function(e) { return e.error; }).join(', '), 'error');
                             } else {
+                                tr.querySelector('.rc-key').value = '';
                                 showToast('Channel ' + idx + ' updated on radio', 'success');
                             }
                         })

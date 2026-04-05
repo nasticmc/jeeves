@@ -388,7 +388,9 @@ class PathBot:
             log.warning("Cannot send message: not connected to MeshCore")
             return False
         chunks = self._split_message(text)
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                await asyncio.sleep(2)
             result = await self._mc.commands.send_chan_msg(channel_id, chunk)
             if result.type == EventType.ERROR:
                 log.error(f"Failed to send message on ch{channel_id}: {result.payload}")
