@@ -122,15 +122,19 @@ async def radio_channels(bot=Depends(get_bot)):
             result = await bot._mc.commands.get_channel(idx)
             if result.type == EventType.CHANNEL_INFO:
                 info = result.payload
+                secret_bytes = info.get("channel_secret")
+                secret_hex = secret_bytes.hex() if isinstance(secret_bytes, (bytes, bytearray)) else ""
                 channels.append({
                     "channel_idx": info.get("channel_idx", idx),
                     "channel_name": info.get("channel_name", ""),
+                    "channel_secret_hex": secret_hex,
+                    "channel_hash": info.get("channel_hash", ""),
                 })
             else:
-                channels.append({"channel_idx": idx, "channel_name": "", "error": str(result.payload)})
+                channels.append({"channel_idx": idx, "channel_name": "", "channel_secret_hex": "", "channel_hash": "", "error": str(result.payload)})
         except Exception as e:
             log.warning(f"Failed to get channel {idx}: {e}")
-            channels.append({"channel_idx": idx, "channel_name": "", "error": str(e)})
+            channels.append({"channel_idx": idx, "channel_name": "", "channel_secret_hex": "", "channel_hash": "", "error": str(e)})
     return channels
 
 

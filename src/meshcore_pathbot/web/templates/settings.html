@@ -83,13 +83,15 @@
             <tr>
                 <th>Slot</th>
                 <th>Channel Name</th>
-                <th>Channel Key</th>
+                <th>Set Key</th>
+                <th>Active Secret (hex)</th>
+                <th>Hash</th>
                 <th></th>
             </tr>
         </thead>
         <tbody id="radio-channels-body"></tbody>
     </table>
-    <p><small>Channel Key sets the shared encryption secret for the channel. Leave blank to keep existing key. Name and Key are sent separately — set name first, then key if needed.</small></p>
+    <p><small>Active Secret shows the 16-byte key currently stored on the radio. Hash is a 2-char fingerprint — use it to confirm the same key is loaded on both ends. To change the key, type the new key name in <strong>Set Key</strong> and click Save.</small></p>
 </fieldset>
 
 <hr>
@@ -659,10 +661,14 @@
                     var tr = document.createElement('tr');
                     var idx = ch.channel_idx;
                     var name = ch.channel_name || '';
+                    var secretHex = ch.channel_secret_hex || '';
+                    var hash = ch.channel_hash || '';
                     tr.innerHTML =
                         '<td><strong>' + idx + '</strong></td>' +
                         '<td><input type="text" class="rc-name" data-idx="' + idx + '" value="' + name.replace(/"/g, '&quot;') + '" placeholder="(empty)"></td>' +
                         '<td><input type="text" class="rc-key" data-idx="' + idx + '" value="" placeholder="Set new key..." autocomplete="off"></td>' +
+                        '<td><code class="rc-secret" style="font-size:0.75em;word-break:break-all;">' + (secretHex || '<em>—</em>') + '</code></td>' +
+                        '<td><code class="rc-hash">' + (hash || '—') + '</code></td>' +
                         '<td><button type="button" class="outline rc-save-btn" data-idx="' + idx + '">Save</button></td>';
                     rcBody.appendChild(tr);
 
@@ -711,6 +717,19 @@
                             } else {
                                 tr.querySelector('.rc-key').value = '';
                                 showToast('Channel ' + idx + ' updated on radio', 'success');
+                                // Re-read channel from radio to update secret/hash display
+                                fetch('/api/radio/channels')
+                                    .then(function(r) { return r.json(); })
+                                    .then(function(updated) {
+                                        var ch = Array.isArray(updated) && updated.find(function(c) { return c.channel_idx === idx; });
+                                        if (ch) {
+                                            var secretEl = tr.querySelector('.rc-secret');
+                                            var hashEl = tr.querySelector('.rc-hash');
+                                            if (secretEl) secretEl.innerHTML = ch.channel_secret_hex || '<em>—</em>';
+                                            if (hashEl) hashEl.textContent = ch.channel_hash || '—';
+                                        }
+                                    })
+                                    .catch(function() {});
                             }
                         })
                         .catch(function() {
