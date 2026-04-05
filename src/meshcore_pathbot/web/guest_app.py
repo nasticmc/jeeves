@@ -91,7 +91,7 @@ def create_guest_app(
     async def track_guest_page_visits(request, call_next):
         response = await call_next(request)
 
-        if request.method == "GET" and request.url.path in {"/", "/paths", "/overlaps", "/repeaters"}:
+        if request.method == "GET" and request.url.path in {"/", "/paths"}:
             forwarded_for = request.headers.get("x-forwarded-for", "")
             if forwarded_for:
                 ip_address = forwarded_for.split(",", 1)[0].strip()
@@ -101,12 +101,10 @@ def create_guest_app(
 
         return response
 
-    from .routes import guest_api, guest_dashboard, guest_overlaps, guest_paths, guest_repeaters
+    from .routes import guest_api, guest_dashboard, guest_paths
 
     app.include_router(guest_dashboard.router)
     app.include_router(guest_paths.router)
-    app.include_router(guest_overlaps.router)
-    app.include_router(guest_repeaters.router)
     app.include_router(guest_api.router, prefix="/api")
 
     return app

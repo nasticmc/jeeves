@@ -23,6 +23,10 @@ from . import weather as weather_svc
 
 log = logging.getLogger("pathbot.bot")
 
+_PROMO_URL = "https://j.eastmesh.au"
+_MAX_MSG_LEN = 130
+_PING_URL_INTERVAL = 7  # append URL on every Nth ping reply
+
 
 def parse_rx_log_data(payload: Any) -> dict[str, Any]:
     """Parse RX_LOG event payload to extract path details.
@@ -150,6 +154,9 @@ class PathBot:
         self._last_command_at_by_user: dict[tuple[int, str], float] = {}
         self._lightning_task: asyncio.Task | None = None
         self._daily_forecast_task: asyncio.Task | None = None
+        self._send_lock = asyncio.Lock()
+        self._ping_reply_count: int = 0
+        self._pending_url: bool = False
 
     @property
     def is_connected(self) -> bool:
@@ -383,18 +390,26 @@ class PathBot:
         return f"@[{sender}] {len(seen)} paths: {', '.join(seen)}"
 
     async def send_channel_message(self, channel_id: int, text: str) -> bool:
-        """Send a text message on the given channel. Returns True on success."""
+        """Send a text message on the given channel, serialized via a global lock.
+
+        A 2-second gap is enforced after the last chunk so concurrent callers
+        can never fire messages back-to-back.  Returns True on success.
+        """
         if not self._mc:
             log.warning("Cannot send message: not connected to MeshCore")
             return False
-        chunks = self._split_message(text)
-        for chunk in chunks:
-            result = await self._mc.commands.send_chan_msg(channel_id, chunk)
-            if result.type == EventType.ERROR:
-                log.error(f"Failed to send message on ch{channel_id}: {result.payload}")
-                self.stats.errors += 1
-                return False
-            self.stats.messages_out += 1
+        async with self._send_lock:
+            chunks = self._split_message(text)
+            for i, chunk in enumerate(chunks):
+                if i > 0:
+                    await asyncio.sleep(2)
+                result = await self._mc.commands.send_chan_msg(channel_id, chunk)
+                if result.type == EventType.ERROR:
+                    log.error(f"Failed to send message on ch{channel_id}: {result.payload}")
+                    self.stats.errors += 1
+                    return False
+                self.stats.messages_out += 1
+            await asyncio.sleep(2)  # gap before next message can acquire the lock
         return True
 
     async def _lightning_alert_loop(self) -> None:
@@ -714,17 +729,24 @@ class PathBot:
             else:
                 reply = f"@[{sender}] rxed"
 
-        chunks = self._split_message(reply)
-        log.info(f"Replying on ch{channel_id} ({len(chunks)} part(s)): {reply}")
+        # For ping replies: inject promo URL on every Nth reply, or carry forward
+        # if the reply is already too long to fit it.
+        if cmd_name == "ping":
+            self._ping_reply_count += 1
+            wants_url = (self._ping_reply_count % _PING_URL_INTERVAL == 0) or self._pending_url
+            self._pending_url = False
+            if wants_url:
+                url_suffix = " " + _PROMO_URL
+                if len(reply) + len(url_suffix) <= _MAX_MSG_LEN:
+                    reply += url_suffix
+                else:
+                    self._pending_url = True  # carry to next ping reply
 
-        for chunk in chunks:
-            result = await self._mc.commands.send_chan_msg(channel_id, chunk)
-            if result.type == EventType.ERROR:
-                log.error(f"Failed to send reply chunk: {result.payload}")
-                self.stats.errors += 1
-                await self.bus.publish(AppEvent.ERROR, {"message": f"Send failed: {result.payload}"})
-                return
-            self.stats.messages_out += 1
+        log.info(f"Replying on ch{channel_id}: {reply}")
+        ok = await self.send_channel_message(channel_id, reply)
+        if not ok:
+            await self.bus.publish(AppEvent.ERROR, {"message": "Send failed"})
+            return
 
         out_ts = time.time()
         await self.message_store.add(
