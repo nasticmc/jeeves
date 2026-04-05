@@ -209,8 +209,48 @@ def test_lookup_prefixes_2byte_unknown_shows_question_mark(tmp_path: Path) -> No
     assert "?" in result
 
 
-def test_lookup_prefixes_4char_no_separator_is_2byte(tmp_path: Path) -> None:
-    """A 4-char hex string without separator is treated as one 2-byte prefix."""
+def test_lookup_prefixes_4char_no_separator_splits_into_1byte_hops(tmp_path: Path) -> None:
+    """A 4-char hex string without separator is split into two 1-byte hops."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1111", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "1f2222", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    # "fb1f" without separator → two 1-byte hops ["fb", "1f"]
+    result = resolver.lookup_prefixes("fb1f")
+    assert "Hilltop" in result
+    assert "Valley" in result
+
+
+def test_lookup_prefixes_6char_no_separator_splits_into_1byte_hops(tmp_path: Path) -> None:
+    """A 6-char hex string without separator is split into three 1-byte hops."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1111", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "1f2222", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "113333", "adv_type": 2, "adv_name": "Tower", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    # "fb1f11" without separator → three 1-byte hops ["fb", "1f", "11"]
+    result = resolver.lookup_prefixes("fb1f11")
+    assert "Hilltop" in result
+    assert "Valley" in result
+    assert "Tower" in result
+
+
+# ── resolve / resolve_detailed: multibyte path support ───────────────────────
+
+def test_resolve_multibyte_path_colon_separated(tmp_path: Path) -> None:
+    """resolve() handles multibyte separator-delimited hops (e.g. 'fb1f:7ab2')."""
     db = RepeaterDB(tmp_path / "repeaters.db")
     asyncio.run(db.load())
     asyncio.run(db.update_from_contact(
@@ -219,25 +259,37 @@ def test_lookup_prefixes_4char_no_separator_is_2byte(tmp_path: Path) -> None:
     asyncio.run(db.update_from_contact(
         {"public_key": "fb2f22", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
     ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "7ab233", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+    ))
     resolver = PathResolver(db)
-    # "fb1f" with no separator should resolve as a single 2-byte prefix
-    result = resolver.lookup_prefixes("fb1f")
+    result = resolver.resolve("fb1f:7ab2")
     assert "Hilltop" in result
+    assert "Valley" in result
     assert "Flatland" not in result  # eliminated by 2-byte match
+    assert "(2 hops)" in result
 
 
-def test_lookup_prefixes_6char_no_separator_is_3byte(tmp_path: Path) -> None:
-    """A 6-char hex string without separator is treated as one 3-byte prefix."""
+def test_resolve_detailed_multibyte_path(tmp_path: Path) -> None:
+    """resolve_detailed() returns correct hop count and prefix for multibyte paths."""
     db = RepeaterDB(tmp_path / "repeaters.db")
     asyncio.run(db.load())
     asyncio.run(db.update_from_contact(
-        {"public_key": "fb1f11aabb", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+        {"public_key": "fb1f11", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
     ))
     asyncio.run(db.update_from_contact(
-        {"public_key": "fb1f22ccdd", "adv_type": 2, "adv_name": "Flatland", "adv_lat": 0, "adv_lon": 0}
+        {"public_key": "7ab233", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
     ))
     resolver = PathResolver(db)
-    # "fb1f11" with no separator should resolve as a single 3-byte prefix
-    result = resolver.lookup_prefixes("fb1f11")
-    assert "Hilltop" in result
-    assert "Flatland" not in result  # eliminated by 3-byte match
+    hops = resolver.resolve_detailed("fb1f:7ab2")
+    assert len(hops) == 2
+    assert hops[0]["prefix"] == "fb1f"
+    assert hops[0]["name"] == "Hilltop"
+    assert hops[1]["prefix"] == "7ab2"
+    assert hops[1]["name"] == "Valley"
+
+
+def test_raw_multibyte_path(tmp_path: Path) -> None:
+    """raw() preserves multibyte segments in its output."""
+    result = PathResolver.raw("fb1f:7ab2")
+    assert result == "fb1f:7ab2 (2 hops)"

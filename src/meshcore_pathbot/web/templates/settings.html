@@ -76,7 +76,13 @@
     <legend>Radio Channels</legend>
     <p><small>Channel list read directly from the radio. Edit a name and click save to update the device.</small></p>
 
-    <div id="radio-channels-loading"><p aria-busy="true">Loading channels from radio...</p></div>
+    <div style="margin-bottom:0.75rem;">
+        <button type="button" id="radio-channels-refresh-btn" class="outline" style="width:auto;">
+            Pull from Radio
+        </button>
+    </div>
+
+    <div id="radio-channels-loading" style="display:none;"><p aria-busy="true">Loading channels from radio...</p></div>
 
     <table id="radio-channels-table" role="grid" style="display:none;">
         <thead>
@@ -643,17 +649,26 @@
     var rcBody = document.getElementById('radio-channels-body');
     var rcTable = document.getElementById('radio-channels-table');
     var rcLoading = document.getElementById('radio-channels-loading');
+    var rcRefreshBtn = document.getElementById('radio-channels-refresh-btn');
 
     function loadRadioChannels() {
+        rcRefreshBtn.setAttribute('aria-busy', 'true');
+        rcRefreshBtn.disabled = true;
+        rcLoading.style.display = '';
+        rcTable.style.display = 'none';
+
         fetch('/api/radio/channels')
             .then(function(r) { return r.json(); })
             .then(function(data) {
                 rcLoading.style.display = 'none';
+                rcRefreshBtn.removeAttribute('aria-busy');
+                rcRefreshBtn.disabled = false;
+
                 if (data.error) {
-                    rcLoading.innerHTML = '<p><small>' + data.error + '</small></p>';
-                    rcLoading.style.display = '';
+                    showToast('Could not read channels: ' + data.error, 'error');
                     return;
                 }
+
                 rcTable.style.display = '';
                 rcBody.innerHTML = '';
 
@@ -717,19 +732,8 @@
                             } else {
                                 tr.querySelector('.rc-key').value = '';
                                 showToast('Channel ' + idx + ' updated on radio', 'success');
-                                // Re-read channel from radio to update secret/hash display
-                                fetch('/api/radio/channels')
-                                    .then(function(r) { return r.json(); })
-                                    .then(function(updated) {
-                                        var ch = Array.isArray(updated) && updated.find(function(c) { return c.channel_idx === idx; });
-                                        if (ch) {
-                                            var secretEl = tr.querySelector('.rc-secret');
-                                            var hashEl = tr.querySelector('.rc-hash');
-                                            if (secretEl) secretEl.innerHTML = ch.channel_secret_hex || '<em>—</em>';
-                                            if (hashEl) hashEl.textContent = ch.channel_hash || '—';
-                                        }
-                                    })
-                                    .catch(function() {});
+                                // Re-read all channels to refresh secret/hash display
+                                loadRadioChannels();
                             }
                         })
                         .catch(function() {
@@ -742,9 +746,13 @@
             })
             .catch(function() {
                 rcLoading.style.display = 'none';
+                rcRefreshBtn.removeAttribute('aria-busy');
+                rcRefreshBtn.disabled = false;
+                showToast('Failed to reach radio for channel info', 'error');
             });
     }
 
+    rcRefreshBtn.addEventListener('click', loadRadioChannels);
     loadRadioChannels();
 })();
 </script>

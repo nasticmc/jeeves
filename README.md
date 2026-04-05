@@ -1,8 +1,18 @@
-# meshcore-pathbot
+# meshcore-pathbot — v1.0.0
 
 MeshCore path resolver bot with a web dashboard.
 
 Connects to a MeshCore companion radio, listens for `trace` and `ping` commands on a channel, resolves hex path prefixes to repeater names using a persistent database, and replies on the channel. Includes a full web dashboard for live monitoring, repeater management, path visualization, and configuration.
+
+### Features
+
+- **Path resolution** — resolves 1-byte and multibyte (2-byte hash) hex path prefixes to repeater names with geographic disambiguation
+- **Web dashboard** (port 8075) — live message feed, path visualizer, repeater management, overlap analysis, statistics, and full settings UI
+- **Guest dashboard** (port 8076, optional) — read-only view of ping history, paths, and repeater info
+- **Weather & forecasts** — per-channel `weather` and `forecast` commands via Open-Meteo
+- **Lightning alerts** — scheduled thunderstorm detection with automatic channel broadcasts
+- **Radio management** — read and update radio name, frequency, TX power, and channel keys directly from the web UI
+- **Systemd & Docker** — production-ready deployment with auto-restart
 
 ## Quick Start
 

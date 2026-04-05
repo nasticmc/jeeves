@@ -72,6 +72,48 @@ class PathResolver:
         cleaned = re.sub(r"[:\s,]+", "", raw).strip().lower()
         return cleaned
 
+    @staticmethod
+    def _parse_prefixes(raw: str) -> list[str]:
+        """Parse a raw path string into a list of hex prefix strings.
+
+        Supports standard 1-byte-per-hop paths and multibyte paths:
+
+        Standard (2-char hops):
+            "fb1f7a"      -> ["fb", "1f", "7a"]
+            "fb:1f:7a"    -> ["fb", "1f", "7a"]
+
+        Multibyte (separator-delimited segments > 2 chars):
+            "fb1f:7ab2"   -> ["fb1f", "7ab2"]
+            "fb1f 7ab2"   -> ["fb1f", "7ab2"]
+
+        Unseparated input is always treated as 1-byte chunks so that
+        "fb1f7a" means three 1-byte hops, not one 3-byte hop.
+
+        Returns an empty list if the input is invalid.
+        """
+        raw = raw.strip()
+        if not raw:
+            return []
+
+        has_separators = bool(re.search(r"[:\s,]", raw))
+        segments = [s.lower() for s in re.split(r"[:\s,]+", raw) if s.strip()]
+
+        if not segments:
+            return []
+
+        # Multibyte mode: separators present and every segment is >2-char even-length hex
+        if has_separators and all(
+            re.fullmatch(r"[0-9a-f]+", s) and len(s) > 2 and len(s) % 2 == 0
+            for s in segments
+        ):
+            return segments
+
+        # Standard mode: strip all separators and split into 2-char (1-byte) chunks
+        cleaned = re.sub(r"[:\s,]+", "", raw).lower()
+        if not re.fullmatch(r"[0-9a-f]+", cleaned) or len(cleaned) < 2 or len(cleaned) % 2 != 0:
+            return []
+        return [cleaned[i : i + 2] for i in range(0, len(cleaned), 2)]
+
     def resolve(self, raw_path: str, preferred_repeaters: dict[str, str] | None = None) -> str:
         """Resolve a raw hex path into friendly names.
 
@@ -82,11 +124,10 @@ class PathResolver:
         or with ambiguity markers:
             "Hilltop-RPT? > Valley-RPT > Tower-RPT (3 hops)"
         """
-        raw_path = self.normalize_path(raw_path)
-        if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
+        prefixes = self._parse_prefixes(raw_path)
+        if not prefixes:
             return ""
 
-        prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
         hop_count = len(prefixes)
 
         # Find all candidates for each hop
@@ -103,7 +144,9 @@ class PathResolver:
                         [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0}]
                     )
                 else:
-                    candidates.append(matches)
+                    # Override stored prefix with the lookup key so multibyte
+                    # prefixes (e.g. "fb1f") are preserved in the result.
+                    candidates.append([{**m, "prefix": p} for m in matches])
 
         preferred_repeaters = preferred_repeaters or {}
 
@@ -170,11 +213,10 @@ class PathResolver:
         preferred_repeaters: dict[str, str] | None = None,
     ) -> list[dict]:
         """Resolve path and return detailed hop information for web display."""
-        raw_path = self.normalize_path(raw_path)
-        if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
+        prefixes = self._parse_prefixes(raw_path)
+        if not prefixes:
             return []
 
-        prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
         hop_count = len(prefixes)
 
         candidates = []
@@ -192,8 +234,10 @@ class PathResolver:
                         [{"prefix": p, "name": p.upper(), "lat": 0, "lon": 0, "resolved": False}]
                     )
                 else:
+                    # Override stored prefix with the lookup key so multibyte
+                    # prefixes (e.g. "fb1f") are preserved in the result.
                     candidates.append([
-                        {**m, "resolved": True}
+                        {**m, "prefix": p, "resolved": True}
                         for m in matches
                     ])
 
@@ -278,12 +322,11 @@ class PathResolver:
     @classmethod
     def raw(cls, raw_path: str) -> str:
         """Format raw path with hop count, no name resolution."""
-        raw_path = cls.normalize_path(raw_path)
-        if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
+        prefixes = cls._parse_prefixes(raw_path)
+        if not prefixes:
             return ""
-        hop_count = len(raw_path) // 2
-        split = ":".join(raw_path[i : i + 2] for i in range(0, len(raw_path), 2))
-        return f"{split} ({hop_count} hops)"
+        split = ":".join(prefixes)
+        return f"{split} ({len(prefixes)} hops)"
 
     def lookup_prefixes(self, raw_path: str) -> str:
         """Look up repeater names for hex prefixes using best-guess disambiguation.
@@ -296,19 +339,9 @@ class PathResolver:
         by using the full segment as the lookup key so more bytes eliminate collisions.
         Output labels each hop with its full segment: "fb1f=Hilltop, 7ab2=Valley"
         """
-        # Detect multibyte paths before stripping separators.
-        # If all colon/space/comma-separated segments are valid even-length hex
-        # longer than 2 chars, treat each segment as a full multibyte hop key.
-        # A single unseparated segment of 4+ even-length hex (e.g. "fb1f", "fb1f7a")
-        # is also treated as one multibyte prefix rather than split into 1-byte chunks.
-        segments = [s.strip().lower() for s in re.split(r"[:\s,]+", raw_path.strip()) if s.strip()]
-        if all(re.fullmatch(r"[0-9a-f]+", s) and len(s) > 2 and len(s) % 2 == 0 for s in segments) and segments:
-            prefixes = segments  # full segments, e.g. "fb1f" for 2-byte hashes
-        else:
-            raw_path = self.normalize_path(raw_path)
-            if not raw_path or len(raw_path) < 2 or len(raw_path) % 2 != 0:
-                return ""
-            prefixes = [raw_path[i : i + 2].lower() for i in range(0, len(raw_path), 2)]
+        prefixes = self._parse_prefixes(raw_path)
+        if not prefixes:
+            return ""
 
         hop_count = len(prefixes)
 
