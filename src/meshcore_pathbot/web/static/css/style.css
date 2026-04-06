@@ -1,5 +1,47 @@
 /* MeshCore PathBot - Custom Styles */
 
+/* EastMesh-inspired theme overrides */
+:root[data-theme="dark"] {
+    --pico-background-color: #0a1215;
+    --pico-color: #d9e6de;
+    --pico-muted-color: #99b3a7;
+    --pico-muted-border-color: #233238;
+    --pico-primary: #00a86b;
+    --pico-primary-hover: #00bf78;
+    --pico-primary-focus: rgba(0, 168, 107, 0.25);
+    --pico-primary-inverse: #04110b;
+    --pico-secondary: #1b2b31;
+    --pico-secondary-hover: #243841;
+    --pico-card-background-color: #101b20;
+    --pico-card-border-color: #1f3137;
+    --pico-form-element-background-color: #0f1a1e;
+    --pico-form-element-border-color: #284148;
+}
+
+body {
+    background: radial-gradient(circle at top, #13252a 0%, #0a1215 40%, #070d10 100%);
+}
+
+nav.container-fluid,
+footer.container {
+    border-color: #1f3137;
+}
+
+a,
+[role="link"] {
+    color: #42d69f;
+}
+
+a:hover,
+[role="link"]:hover {
+    color: #64e7b6;
+}
+
+button.secondary,
+[role="button"].secondary {
+    border-color: #2d474f;
+}
+
 /* Status indicators */
 .status-dot {
     display: inline-block;
