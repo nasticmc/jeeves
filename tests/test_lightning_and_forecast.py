@@ -111,6 +111,30 @@ def test_check_lightning_returns_false_when_code_missing():
     assert result is False
 
 
+def test_check_lightning_returns_true_when_nearby_sample_has_storm():
+    async def fake_current_weather(lat, lon):
+        # Simulate no storm at center, storm at first nearby sample point.
+        if lat > -38.0 and lon == 145.0:
+            return {"current": {"weather_code": 95}}
+        return {"current": {"weather_code": 2}}
+
+    with patch(
+        "meshcore_pathbot.core.weather.get_current_weather",
+        new=AsyncMock(side_effect=fake_current_weather),
+    ):
+        result = asyncio.run(check_lightning(-38.0, 145.0))
+    assert result is True
+
+
+def test_check_lightning_returns_false_when_all_samples_clear():
+    with patch(
+        "meshcore_pathbot.core.weather.get_current_weather",
+        new=AsyncMock(return_value={"current": {"weather_code": 2}}),
+    ):
+        result = asyncio.run(check_lightning(-38.0, 145.0))
+    assert result is False
+
+
 # ── forecast_broadcast (weather.py) ───────────────────────────────────────────
 
 def test_forecast_broadcast_no_sender_prefix():
@@ -239,7 +263,8 @@ def test_lightning_all_clear_sent_when_storm_passes():
         async def fake_sleep(seconds):
             nonlocal sleep_calls
             sleep_calls += 1
-            if sleep_calls >= 3:
+            # Allow enough loop turns for both storm-detected and all-clear paths.
+            if sleep_calls >= 5:
                 raise asyncio.CancelledError()
 
         with (

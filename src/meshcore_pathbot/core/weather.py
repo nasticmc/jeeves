@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import math
 import urllib.parse
 import urllib.request
 from datetime import datetime
@@ -40,6 +41,7 @@ WMO_DESCRIPTIONS: dict[int, str] = {
 }
 
 LIGHTNING_CODES: frozenset[int] = frozenset({95, 96, 99})  # WMO thunderstorm codes
+LIGHTNING_RADIUS_KM = 50.0
 
 _OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 _NOMINATIM_BASE = "https://nominatim.openstreetmap.org/search"
@@ -122,15 +124,59 @@ async def get_forecast(lat: float, lon: float) -> dict:
     return data
 
 
+def _km_to_lat_degrees(km: float) -> float:
+    """Approximate latitude degrees for *km*."""
+    return km / 111.0
+
+
+def _km_to_lon_degrees(km: float, lat: float) -> float:
+    """Approximate longitude degrees for *km* at latitude *lat*."""
+    cos_lat = math.cos(math.radians(lat))
+    # Avoid blow-up near poles; precision here only needs to be approximate.
+    if abs(cos_lat) < 1e-6:
+        return 0.0
+    return km / (111.0 * cos_lat)
+
+
+def _lightning_sample_points(lat: float, lon: float, radius_km: float) -> list[tuple[float, float]]:
+    """Return sample points used to approximate thunderstorm checks within radius."""
+    half = radius_km / 2.0
+    diag = radius_km / math.sqrt(2.0)  # keep diagonal points within radius
+    ring_steps = (half, radius_km)
+
+    points: list[tuple[float, float]] = [(lat, lon)]
+    for step_km in ring_steps:
+        dlat = _km_to_lat_degrees(step_km)
+        dlon = _km_to_lon_degrees(step_km, lat)
+        ddiag_lat = _km_to_lat_degrees(diag if step_km == radius_km else diag / 2.0)
+        ddiag_lon = _km_to_lon_degrees(diag if step_km == radius_km else diag / 2.0, lat)
+        points.extend(
+            [
+                (lat + dlat, lon),  # north
+                (lat - dlat, lon),  # south
+                (lat, lon + dlon),  # east
+                (lat, lon - dlon),  # west
+                (lat + ddiag_lat, lon + ddiag_lon),  # northeast
+                (lat + ddiag_lat, lon - ddiag_lon),  # northwest
+                (lat - ddiag_lat, lon + ddiag_lon),  # southeast
+                (lat - ddiag_lat, lon - ddiag_lon),  # southwest
+            ]
+        )
+    return points
+
+
 async def check_lightning(lat: float, lon: float) -> bool:
-    """Return True if current weather at the given coordinates is a thunderstorm."""
+    """Return True if thunderstorm conditions are detected within ~50km of coordinates."""
     try:
-        data = await get_current_weather(lat, lon)
-        current = data.get("current", {})
-        code = current.get("weather_code")
-        if code is None:
-            return False
-        return int(code) in LIGHTNING_CODES
+        for sample_lat, sample_lon in _lightning_sample_points(lat, lon, LIGHTNING_RADIUS_KM):
+            data = await get_current_weather(sample_lat, sample_lon)
+            current = data.get("current", {})
+            code = current.get("weather_code")
+            if code is None:
+                continue
+            if int(code) in LIGHTNING_CODES:
+                return True
+        return False
     except Exception as exc:
         log.warning("Lightning check failed: %s", exc)
         return False
@@ -210,5 +256,4 @@ async def forecast_broadcast(lat: float, lon: float, location_name: str) -> str:
         day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
 
     return f"{location_name} 3-day forecast: {', '.join(day_parts)}"
-
 
