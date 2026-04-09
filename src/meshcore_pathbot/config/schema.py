@@ -53,6 +53,10 @@ class BotConfig(BaseModel):
     lightning_alert_enabled: bool = False
     lightning_alert_channels: list[int] = Field(default_factory=list)
     lightning_alert_interval_minutes: int = Field(default=15, ge=1)
+    lightning_source: Literal["open_meteo", "blitzortung"] = "blitzortung"
+    blitzortung_username: str = ""
+    blitzortung_password: str = ""
+    blitzortung_lookback_minutes: int = Field(default=20, ge=1, le=180)
 
     # Daily forecast settings
     daily_forecast_enabled: bool = False

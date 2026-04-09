@@ -207,15 +207,36 @@
 
     <fieldset>
         <legend>Lightning Alerts</legend>
-        <p><small>When enabled, the bot polls Open-Meteo for thunderstorm activity at the bot's location (bot.lat/lon) and broadcasts an alert to the selected channels. Requires <strong>Bot Latitude/Longitude</strong> to be set.</small></p>
+        <p><small>When enabled, the bot checks for nearby lightning at the bot location (<code>bot.lat/lon</code>) and broadcasts alerts to selected channels. Requires <strong>Bot Latitude/Longitude</strong> to be set.</small></p>
         <label>
             <input type="checkbox" name="lightning_alert_enabled" value="true" {% if config.bot.lightning_alert_enabled %}checked{% endif %}>
             Enable lightning alerts
         </label>
         <div class="grid">
             <label>
+                Lightning Source
+                <select name="lightning_source">
+                    <option value="blitzortung" {% if config.bot.lightning_source == "blitzortung" %}selected{% endif %}>Blitzortung</option>
+                    <option value="open_meteo" {% if config.bot.lightning_source == "open_meteo" %}selected{% endif %}>Open-Meteo (fallback)</option>
+                </select>
+            </label>
+            <label>
                 Check Interval (minutes)
                 <input type="number" name="lightning_alert_interval_minutes" value="{{ config.bot.lightning_alert_interval_minutes }}" min="1" step="1">
+            </label>
+            <label>
+                Blitzortung Lookback (minutes)
+                <input type="number" name="blitzortung_lookback_minutes" value="{{ config.bot.blitzortung_lookback_minutes }}" min="1" max="180" step="1">
+            </label>
+        </div>
+        <div class="grid">
+            <label>
+                Blitzortung Username
+                <input type="text" name="blitzortung_username" value="{{ config.bot.blitzortung_username }}" placeholder="Optional, if your feed requires auth">
+            </label>
+            <label>
+                Blitzortung Password
+                <input type="password" name="blitzortung_password" value="{{ config.bot.blitzortung_password }}" placeholder="Optional, if your feed requires auth">
             </label>
         </div>
         <label>Alert Channels</label>

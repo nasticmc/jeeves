@@ -14,6 +14,7 @@ from meshcore_pathbot.core.bot import PathBot
 from meshcore_pathbot.core.weather import (
     LIGHTNING_CODES,
     check_lightning,
+    check_lightning_with_source,
     forecast_broadcast,
 )
 from meshcore_pathbot.events.bus import EventBus
@@ -135,6 +136,40 @@ def test_check_lightning_returns_false_when_all_samples_clear():
     assert result is False
 
 
+def test_check_lightning_blitzortung_source_returns_true_for_nearby_strike():
+    sample_data = [[1712640000000, -38.001, 145.002, 0, 0]]
+    with patch(
+        "meshcore_pathbot.core.weather._fetch_json",
+        new=AsyncMock(return_value=sample_data),
+    ):
+        result = asyncio.run(
+            check_lightning_with_source(
+                -38.0,
+                145.0,
+                source="blitzortung",
+                blitzortung_lookback_minutes=1,
+            )
+        )
+    assert result is True
+
+
+def test_check_lightning_blitzortung_source_returns_false_when_no_nearby_strike():
+    sample_data = [[1712640000000, -35.0, 140.0, 0, 0]]
+    with patch(
+        "meshcore_pathbot.core.weather._fetch_json",
+        new=AsyncMock(return_value=sample_data),
+    ):
+        result = asyncio.run(
+            check_lightning_with_source(
+                -38.0,
+                145.0,
+                source="blitzortung",
+                blitzortung_lookback_minutes=1,
+            )
+        )
+    assert result is False
+
+
 # ── forecast_broadcast (weather.py) ───────────────────────────────────────────
 
 def test_forecast_broadcast_no_sender_prefix():
@@ -207,36 +242,36 @@ def test_lightning_alert_loop_exits_when_location_unset():
 
 
 def test_lightning_alert_loop_sends_alert_when_storm_detected():
-    """Loop should send alert when storm is first detected."""
+    """Loop should send alert after storm is confirmed across polls."""
     bot, commands, store = _make_bot(
         lat=-38.0, lon=145.0, lightning_enabled=True, lightning_channels=[1]
     )
 
     call_count = 0
 
-    async def fake_check(lat, lon):
+    async def fake_check(lat, lon, **kwargs):
         nonlocal call_count
         call_count += 1
         return True  # storm active
 
-    async def run_one_iteration():
-        # Patch asyncio.sleep to advance once then cancel
+    async def run_until_alert():
+        # Patch asyncio.sleep to advance enough loops for confirmation then cancel.
         sleep_calls = 0
 
         async def fake_sleep(seconds):
             nonlocal sleep_calls
             sleep_calls += 1
-            if sleep_calls >= 2:
+            if sleep_calls >= 4:
                 raise asyncio.CancelledError()
 
         with (
-            patch("meshcore_pathbot.core.bot.weather_svc.check_lightning", new=fake_check),
+            patch("meshcore_pathbot.core.bot.weather_svc.check_lightning_with_source", new=fake_check),
             patch("asyncio.sleep", new=fake_sleep),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await bot._lightning_alert_loop()
 
-    asyncio.run(run_one_iteration())
+    asyncio.run(run_until_alert())
     # Should have sent a lightning alert to channel 1
     assert any("Lightning alert" in text for _, text in commands.sent)
 
@@ -248,33 +283,33 @@ def test_lightning_all_clear_sent_when_storm_passes():
     )
 
     call_count = 0
-    # First call: storm, second call: clear
-    responses = [True, False]
+    # Two polls to confirm storm, then two polls to confirm clear.
+    responses = [True, True, False, False]
 
-    async def fake_check(lat, lon):
+    async def fake_check(lat, lon, **kwargs):
         nonlocal call_count
         result = responses[min(call_count, len(responses) - 1)]
         call_count += 1
         return result
 
-    async def run_two_iterations():
+    async def run_until_clear():
         sleep_calls = 0
 
         async def fake_sleep(seconds):
             nonlocal sleep_calls
             sleep_calls += 1
-            # Allow enough loop turns for both storm-detected and all-clear paths.
-            if sleep_calls >= 5:
+            # Allow enough loop turns for storm + all-clear confirmations.
+            if sleep_calls >= 10:
                 raise asyncio.CancelledError()
 
         with (
-            patch("meshcore_pathbot.core.bot.weather_svc.check_lightning", new=fake_check),
+            patch("meshcore_pathbot.core.bot.weather_svc.check_lightning_with_source", new=fake_check),
             patch("asyncio.sleep", new=fake_sleep),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await bot._lightning_alert_loop()
 
-    asyncio.run(run_two_iterations())
+    asyncio.run(run_until_clear())
     sent_texts = [text for _, text in commands.sent]
     assert any("Lightning alert" in t for t in sent_texts)
     assert any("all-clear" in t.lower() for t in sent_texts)
@@ -288,28 +323,28 @@ def test_lightning_alert_uses_all_active_channels_when_none_configured():
     # Active channel is 1 from _make_bot
     call_count = 0
 
-    async def fake_check(lat, lon):
+    async def fake_check(lat, lon, **kwargs):
         nonlocal call_count
         call_count += 1
         return True
 
-    async def run_one_iteration():
+    async def run_until_alert():
         sleep_calls = 0
 
         async def fake_sleep(seconds):
             nonlocal sleep_calls
             sleep_calls += 1
-            if sleep_calls >= 2:
+            if sleep_calls >= 4:
                 raise asyncio.CancelledError()
 
         with (
-            patch("meshcore_pathbot.core.bot.weather_svc.check_lightning", new=fake_check),
+            patch("meshcore_pathbot.core.bot.weather_svc.check_lightning_with_source", new=fake_check),
             patch("asyncio.sleep", new=fake_sleep),
         ):
             with pytest.raises(asyncio.CancelledError):
                 await bot._lightning_alert_loop()
 
-    asyncio.run(run_one_iteration())
+    asyncio.run(run_until_alert())
     # Channel 1 is the only active channel
     assert any(ch == 1 for ch, _ in commands.sent)
 
@@ -387,4 +422,8 @@ def test_lightning_and_forecast_disabled_by_default():
     assert config.bot.lightning_alert_channels == []
     assert config.bot.daily_forecast_channels == []
     assert config.bot.lightning_alert_interval_minutes == 15
+    assert config.bot.lightning_source == "blitzortung"
+    assert config.bot.blitzortung_username == ""
+    assert config.bot.blitzortung_password == ""
+    assert config.bot.blitzortung_lookback_minutes == 20
     assert config.bot.daily_forecast_hour == 6

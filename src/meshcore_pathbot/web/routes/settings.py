@@ -58,6 +58,10 @@ async def save_settings(
     lightning_alert_enabled: str = Form(""),
     lightning_alert_channels: list[int] | None = Form(default=None),
     lightning_alert_interval_minutes: int = Form(15),
+    lightning_source: str = Form("blitzortung"),
+    blitzortung_username: str = Form(""),
+    blitzortung_password: str = Form(""),
+    blitzortung_lookback_minutes: int = Form(20),
     daily_forecast_enabled: str = Form(""),
     daily_forecast_channels: list[int] | None = Form(default=None),
     daily_forecast_hour: int = Form(6),
@@ -94,6 +98,10 @@ async def save_settings(
     config.bot.lightning_alert_channels = sorted(set(lightning_alert_channels or []))
     config.bot.lightning_alert_enabled = (lightning_alert_enabled == "true") and bool(config.bot.lightning_alert_channels)
     config.bot.lightning_alert_interval_minutes = max(1, lightning_alert_interval_minutes)
+    config.bot.lightning_source = "blitzortung" if lightning_source == "blitzortung" else "open_meteo"
+    config.bot.blitzortung_username = blitzortung_username.strip()
+    config.bot.blitzortung_password = blitzortung_password
+    config.bot.blitzortung_lookback_minutes = max(1, min(180, blitzortung_lookback_minutes))
     config.bot.daily_forecast_channels = sorted(set(daily_forecast_channels or []))
     config.bot.daily_forecast_enabled = (daily_forecast_enabled == "true") and bool(config.bot.daily_forecast_channels)
     config.bot.daily_forecast_hour = max(0, min(23, daily_forecast_hour))

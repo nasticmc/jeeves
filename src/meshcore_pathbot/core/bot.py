@@ -26,6 +26,7 @@ log = logging.getLogger("pathbot.bot")
 _PROMO_URL = "https://j.eastmesh.au"
 _MAX_MSG_LEN = 130
 _PING_URL_INTERVAL = 7  # append URL on every Nth ping reply
+_LIGHTNING_STATE_CONFIRM_POLLS = 2
 
 
 def parse_rx_log_data(payload: Any) -> dict[str, Any]:
@@ -413,7 +414,7 @@ class PathBot:
         return True
 
     async def _lightning_alert_loop(self) -> None:
-        """Poll Open-Meteo for thunderstorm activity near the bot and broadcast alerts."""
+        """Poll configured lightning source near the bot and broadcast alerts."""
         cfg = self.config.bot
         bot_lat = cfg.lat
         bot_lon = cfg.lon
@@ -427,6 +428,8 @@ class PathBot:
 
         interval = cfg.lightning_alert_interval_minutes * 60
         storm_active = False
+        storm_seen_polls = 0
+        clear_seen_polls = 0
         log.info(
             f"Lightning alert loop: checking every {cfg.lightning_alert_interval_minutes} min "
             f"at ({bot_lat}, {bot_lon})"
@@ -438,20 +441,44 @@ class PathBot:
             if not self._mc:
                 continue
 
-            is_storm = await weather_svc.check_lightning(bot_lat, bot_lon)
+            is_storm = await weather_svc.check_lightning_with_source(
+                bot_lat,
+                bot_lon,
+                source=cfg.lightning_source,
+                blitzortung_username=cfg.blitzortung_username,
+                blitzortung_password=cfg.blitzortung_password,
+                blitzortung_lookback_minutes=cfg.blitzortung_lookback_minutes,
+            )
 
             channels = cfg.lightning_alert_channels or [ch.id for ch in cfg.get_active_channels()]
 
-            if is_storm and not storm_active:
+            if is_storm:
+                storm_seen_polls += 1
+                clear_seen_polls = 0
+            else:
+                clear_seen_polls += 1
+                storm_seen_polls = 0
+
+            if (
+                is_storm
+                and not storm_active
+                and storm_seen_polls >= _LIGHTNING_STATE_CONFIRM_POLLS
+            ):
                 storm_active = True
+                storm_seen_polls = 0
                 msg = "Lightning alert: Thunderstorm detected within 50 km of this node!"
                 log.info("Lightning alert triggered — sending to channels %s", channels)
                 for ch_id in channels:
                     await self.send_channel_message(ch_id, msg)
                     await self.message_store.add("out", "system", msg, time.time(), ch_id)
                 await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
-            elif not is_storm and storm_active:
+            elif (
+                (not is_storm)
+                and storm_active
+                and clear_seen_polls >= _LIGHTNING_STATE_CONFIRM_POLLS
+            ):
                 storm_active = False
+                clear_seen_polls = 0
                 msg = "Lightning all-clear: Thunderstorm has passed."
                 log.info("Lightning all-clear — sending to channels %s", channels)
                 for ch_id in channels:

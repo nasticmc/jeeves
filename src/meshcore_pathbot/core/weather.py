@@ -8,7 +8,7 @@ import logging
 import math
 import urllib.parse
 import urllib.request
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 
 log = logging.getLogger("pathbot.weather")
 
@@ -46,6 +46,7 @@ LIGHTNING_RADIUS_KM = 50.0
 _OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 _NOMINATIM_BASE = "https://nominatim.openstreetmap.org/search"
 _NOMINATIM_HEADERS = {"User-Agent": "MeshCore-PathBot/1.0 (weather command)"}
+_BLITZORTUNG_BASE = "https://data.blitzortung.org/Data/Protected/Strikes_1"
 
 
 def _wmo_desc(code: int) -> str:
@@ -167,6 +168,11 @@ def _lightning_sample_points(lat: float, lon: float, radius_km: float) -> list[t
 
 async def check_lightning(lat: float, lon: float) -> bool:
     """Return True if thunderstorm conditions are detected within ~50km of coordinates."""
+    return await check_lightning_open_meteo(lat, lon)
+
+
+async def check_lightning_open_meteo(lat: float, lon: float) -> bool:
+    """Return True if Open-Meteo indicates thunderstorm conditions within ~50km."""
     try:
         for sample_lat, sample_lon in _lightning_sample_points(lat, lon, LIGHTNING_RADIUS_KM):
             data = await get_current_weather(sample_lat, sample_lon)
@@ -180,6 +186,107 @@ async def check_lightning(lat: float, lon: float) -> bool:
     except Exception as exc:
         log.warning("Lightning check failed: %s", exc)
         return False
+
+
+def _haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Return great-circle distance (km) between two coordinates."""
+    r = 6371.0
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlambda = math.radians(lon2 - lon1)
+    a = (
+        math.sin(dphi / 2.0) ** 2
+        + math.cos(phi1) * math.cos(phi2) * math.sin(dlambda / 2.0) ** 2
+    )
+    return 2.0 * r * math.atan2(math.sqrt(a), math.sqrt(1.0 - a))
+
+
+def _extract_blitz_strike_lat_lon(item: object) -> tuple[float, float] | None:
+    """Extract (lat, lon) from a Blitzortung strike item."""
+    if isinstance(item, dict):
+        for lat_key, lon_key in (("lat", "lon"), ("latitude", "longitude")):
+            if lat_key in item and lon_key in item:
+                try:
+                    return float(item[lat_key]), float(item[lon_key])
+                except (TypeError, ValueError):
+                    return None
+        return None
+    if isinstance(item, list | tuple) and len(item) >= 3:
+        # Common compact shape: [timestamp_ms, lat, lon, ...]
+        try:
+            return float(item[1]), float(item[2])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _blitzortung_candidate_urls(base_url: str, lookback_minutes: int) -> list[str]:
+    """Return candidate Blitzortung minute-file URLs for now back to lookback window."""
+    now = datetime.now(UTC).replace(second=0, microsecond=0)
+    urls: list[str] = []
+    base = base_url.rstrip("/")
+    for m in range(lookback_minutes + 1):
+        ts = now - timedelta(minutes=m)
+        urls.append(f"{base}/{ts:%Y/%m/%d/%H/%M}.json")
+    return urls
+
+
+async def check_lightning_blitzortung(
+    lat: float,
+    lon: float,
+    *,
+    username: str = "",
+    password: str = "",
+    lookback_minutes: int = 20,
+    base_url: str = _BLITZORTUNG_BASE,
+) -> bool:
+    """Return True if Blitzortung reports a strike within LIGHTNING_RADIUS_KM."""
+    headers = {}
+    if username and password:
+        import base64
+
+        raw = f"{username}:{password}".encode("utf-8")
+        headers["Authorization"] = f"Basic {base64.b64encode(raw).decode('ascii')}"
+
+    for url in _blitzortung_candidate_urls(base_url, lookback_minutes):
+        try:
+            data = await _fetch_json(url, headers=headers or None)
+        except Exception:
+            continue
+
+        if not isinstance(data, list):
+            continue
+
+        for strike in data:
+            coords = _extract_blitz_strike_lat_lon(strike)
+            if not coords:
+                continue
+            strike_lat, strike_lon = coords
+            if _haversine_km(lat, lon, strike_lat, strike_lon) <= LIGHTNING_RADIUS_KM:
+                return True
+    return False
+
+
+async def check_lightning_with_source(
+    lat: float,
+    lon: float,
+    *,
+    source: str = "open_meteo",
+    blitzortung_username: str = "",
+    blitzortung_password: str = "",
+    blitzortung_lookback_minutes: int = 20,
+) -> bool:
+    """Check lightning using selected source provider."""
+    if source == "blitzortung":
+        return await check_lightning_blitzortung(
+            lat,
+            lon,
+            username=blitzortung_username,
+            password=blitzortung_password,
+            lookback_minutes=blitzortung_lookback_minutes,
+        )
+    return await check_lightning_open_meteo(lat, lon)
 
 
 async def current_weather_reply(sender: str, lat: float, lon: float, location_name: str) -> str:
@@ -256,4 +363,3 @@ async def forecast_broadcast(lat: float, lon: float, location_name: str) -> str:
         day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
 
     return f"{location_name} 3-day forecast: {', '.join(day_parts)}"
-

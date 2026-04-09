@@ -23,11 +23,15 @@ weather_home_name = "Hampton Park" # Default suburb for weather/forecast command
 weather_home_lat = -38.0291        # Latitude of home suburb
 weather_home_lon = 145.2591        # Longitude of home suburb
 
-# Lightning alerts — broadcast when thunderstorm detected at bot location
+# Lightning alerts — broadcast when nearby lightning is detected at bot location
 # Requires bot.lat and bot.lon to be set
 lightning_alert_enabled = false
 lightning_alert_channels = []      # Channel IDs to alert on (empty = all active channels)
 lightning_alert_interval_minutes = 15  # How often to poll (minutes)
+lightning_source = "blitzortung"   # "blitzortung" (preferred) or "open_meteo" fallback
+blitzortung_username = ""          # Optional username if your Blitzortung feed requires auth
+blitzortung_password = ""          # Optional password if your Blitzortung feed requires auth
+blitzortung_lookback_minutes = 20  # Look back window for recent strikes
 
 # Daily forecast — send 3-day forecast for the weather home location at a set hour
 daily_forecast_enabled = false
