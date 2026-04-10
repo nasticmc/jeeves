@@ -23,7 +23,7 @@ weather_home_name = "Hampton Park" # Default suburb for weather/forecast command
 weather_home_lat = -38.0291        # Latitude of home suburb
 weather_home_lon = 145.2591        # Longitude of home suburb
 
-# Lightning alerts — broadcast when thunderstorm detected at bot location
+# Lightning alerts — broadcast when possible thunderstorms are detected within 25 km of bot location
 # Requires bot.lat and bot.lon to be set
 lightning_alert_enabled = false
 lightning_alert_channels = []      # Channel IDs to alert on (empty = all active channels)

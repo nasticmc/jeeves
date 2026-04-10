@@ -444,7 +444,7 @@ class PathBot:
 
             if is_storm and not storm_active:
                 storm_active = True
-                msg = "Lightning alert: Thunderstorm detected within 50 km of this node!"
+                msg = "Weather alert: Possible thunderstorms in the area (within 25 km of this node)."
                 log.info("Lightning alert triggered — sending to channels %s", channels)
                 for ch_id in channels:
                     await self.send_channel_message(ch_id, msg)

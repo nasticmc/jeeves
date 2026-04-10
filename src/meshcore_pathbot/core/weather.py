@@ -41,7 +41,7 @@ WMO_DESCRIPTIONS: dict[int, str] = {
 }
 
 LIGHTNING_CODES: frozenset[int] = frozenset({95, 96, 99})  # WMO thunderstorm codes
-LIGHTNING_RADIUS_KM = 50.0
+LIGHTNING_RADIUS_KM = 25.0
 
 _OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
 _NOMINATIM_BASE = "https://nominatim.openstreetmap.org/search"
@@ -166,7 +166,7 @@ def _lightning_sample_points(lat: float, lon: float, radius_km: float) -> list[t
 
 
 async def check_lightning(lat: float, lon: float) -> bool:
-    """Return True if thunderstorm conditions are detected within ~50km of coordinates."""
+    """Return True if thunderstorm conditions are detected within ~25km of coordinates."""
     try:
         for sample_lat, sample_lon in _lightning_sample_points(lat, lon, LIGHTNING_RADIUS_KM):
             data = await get_current_weather(sample_lat, sample_lon)
@@ -256,4 +256,3 @@ async def forecast_broadcast(lat: float, lon: float, location_name: str) -> str:
         day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
 
     return f"{location_name} 3-day forecast: {', '.join(day_parts)}"
-

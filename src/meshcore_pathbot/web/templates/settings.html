@@ -207,7 +207,7 @@
 
     <fieldset>
         <legend>Lightning Alerts</legend>
-        <p><small>When enabled, the bot polls Open-Meteo for thunderstorm activity at the bot's location (bot.lat/lon) and broadcasts an alert to the selected channels. Requires <strong>Bot Latitude/Longitude</strong> to be set.</small></p>
+        <p><small>When enabled, the bot polls Open-Meteo for possible thunderstorm activity within a 25 km radius of the bot's location (bot.lat/lon) and broadcasts an alert to the selected channels. Requires <strong>Bot Latitude/Longitude</strong> to be set.</small></p>
         <label>
             <input type="checkbox" name="lightning_alert_enabled" value="true" {% if config.bot.lightning_alert_enabled %}checked{% endif %}>
             Enable lightning alerts
