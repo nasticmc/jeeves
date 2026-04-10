@@ -238,7 +238,7 @@ def test_lightning_alert_loop_sends_alert_when_storm_detected():
 
     asyncio.run(run_one_iteration())
     # Should have sent a lightning alert to channel 1
-    assert any("Lightning alert" in text for _, text in commands.sent)
+    assert any("Weather alert" in text for _, text in commands.sent)
 
 
 def test_lightning_all_clear_sent_when_storm_passes():
@@ -276,7 +276,7 @@ def test_lightning_all_clear_sent_when_storm_passes():
 
     asyncio.run(run_two_iterations())
     sent_texts = [text for _, text in commands.sent]
-    assert any("Lightning alert" in t for t in sent_texts)
+    assert any("Weather alert" in t for t in sent_texts)
     assert any("all-clear" in t.lower() for t in sent_texts)
 
 
