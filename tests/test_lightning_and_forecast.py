@@ -14,6 +14,7 @@ from meshcore_pathbot.core.bot import PathBot
 from meshcore_pathbot.core.weather import (
     LIGHTNING_CODES,
     check_lightning,
+    forecast_reply,
     forecast_broadcast,
 )
 from meshcore_pathbot.events.bus import EventBus
@@ -164,6 +165,25 @@ def test_forecast_broadcast_unavailable_on_empty_data():
     ):
         result = asyncio.run(forecast_broadcast(-38.0, 145.0, "Hampton Park"))
     assert "unavailable" in result.lower()
+
+
+def test_forecast_reply_tolerates_partial_daily_data():
+    data = {
+        "daily": {
+            "time": ["2026-03-01", "2026-03-02"],
+            "weather_code": [2, None],
+            "temperature_2m_max": [25.0, None],
+            "temperature_2m_min": [15.0],
+        }
+    }
+    with patch(
+        "meshcore_pathbot.core.weather.get_forecast",
+        new=AsyncMock(return_value=data),
+    ):
+        result = asyncio.run(forecast_reply("Alice", -38.0, 145.0, "Hampton Park"))
+    assert result.startswith("@[Alice] Hampton Park 3-day:")
+    assert "Partly cloudy" in result
+    assert "?" in result
 
 
 # ── send_channel_message ───────────────────────────────────────────────────────

@@ -9,6 +9,7 @@ import math
 import urllib.parse
 import urllib.request
 from datetime import datetime
+from numbers import Real
 
 log = logging.getLogger("pathbot.weather")
 
@@ -51,6 +52,26 @@ _NOMINATIM_HEADERS = {"User-Agent": "MeshCore-PathBot/1.0 (weather command)"}
 def _wmo_desc(code: int) -> str:
     """Return a human-readable description for a WMO weather code."""
     return WMO_DESCRIPTIONS.get(code, f"Code {code}")
+
+
+def _safe_desc(codes: list, idx: int) -> str:
+    """Return a best-effort weather description for forecast row *idx*."""
+    if idx >= len(codes):
+        return "?"
+    try:
+        return _wmo_desc(int(codes[idx]))
+    except (TypeError, ValueError):
+        return "?"
+
+
+def _safe_temp(values: list, idx: int) -> str:
+    """Return a rounded integer-like temperature string for forecast row *idx*."""
+    if idx >= len(values):
+        return "?"
+    value = values[idx]
+    if isinstance(value, Real):
+        return f"{float(value):.0f}"
+    return str(value)
 
 
 async def _fetch_json(url: str, headers: dict[str, str] | None = None) -> dict | list:
@@ -219,11 +240,9 @@ async def forecast_reply(sender: str, lat: float, lon: float, location_name: str
             day_label = date_obj.strftime("%a")
         except ValueError:
             day_label = times[i]
-        lo = mins[i] if i < len(mins) else "?"
-        hi = maxes[i] if i < len(maxes) else "?"
-        desc = _wmo_desc(int(codes[i])) if i < len(codes) else "?"
-        lo_s = f"{lo:.0f}" if isinstance(lo, float) else str(lo)
-        hi_s = f"{hi:.0f}" if isinstance(hi, float) else str(hi)
+        lo_s = _safe_temp(mins, i)
+        hi_s = _safe_temp(maxes, i)
+        desc = _safe_desc(codes, i)
         day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
 
     return f"@[{sender}] {location_name} 3-day: {', '.join(day_parts)}"
@@ -248,11 +267,9 @@ async def forecast_broadcast(lat: float, lon: float, location_name: str) -> str:
             day_label = date_obj.strftime("%a")
         except ValueError:
             day_label = times[i]
-        lo = mins[i] if i < len(mins) else "?"
-        hi = maxes[i] if i < len(maxes) else "?"
-        desc = _wmo_desc(int(codes[i])) if i < len(codes) else "?"
-        lo_s = f"{lo:.0f}" if isinstance(lo, float) else str(lo)
-        hi_s = f"{hi:.0f}" if isinstance(hi, float) else str(hi)
+        lo_s = _safe_temp(mins, i)
+        hi_s = _safe_temp(maxes, i)
+        desc = _safe_desc(codes, i)
         day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
 
     return f"{location_name} 3-day forecast: {', '.join(day_parts)}"
