@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block title %}Repeaters - Jeeves2.0{% endblock %}
 {% block content %}
-<h2>Repeater Database</h2>
+<h2>Known Devices</h2>
 
 <p>
     <small>
-        {{ stats.total }} repeaters |
+        {{ stats.total }} nodes |
         {{ stats.unique_prefixes }} unique prefixes |
         {{ stats.collisions }} collisions |
         {{ stats.with_location }} with location
@@ -15,7 +15,7 @@
 
 <p>
     <small>
-        Repeater records are retained for {{ retention_days }} days. Next cleanup in
+        Node records are retained for {{ retention_days }} days. Next cleanup in
         <strong id="cleanup-countdown" data-seconds="{{ seconds_until_cleanup }}">--</strong>.
     </small>
 </p>
@@ -23,8 +23,8 @@
 <input
     type="search"
     id="repeater-search"
-    placeholder="Search by name or prefix..."
-    aria-label="Search repeaters"
+    placeholder="Search by name, prefix, or type..."
+    aria-label="Search nodes"
 >
 <small id="repeater-search-status" style="display:none; margin-top:-0.5rem; margin-bottom:0.5rem;"></small>
 
@@ -33,9 +33,10 @@
         <tr>
             <th class="sortable" data-col="0" data-type="str" style="cursor:pointer;">Name <span class="sort-icon"></span></th>
             <th class="sortable" data-col="1" data-type="str" style="cursor:pointer;">Prefix <span class="sort-icon"></span></th>
-            <th class="sortable" data-col="2" data-type="num" style="cursor:pointer;">Lat <span class="sort-icon"></span></th>
-            <th class="sortable" data-col="3" data-type="num" style="cursor:pointer;">Lon <span class="sort-icon"></span></th>
-            <th class="sortable" data-col="4" data-type="str" style="cursor:pointer;">Last Seen <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="2" data-type="str" style="cursor:pointer;">Type <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="3" data-type="num" style="cursor:pointer;">Lat <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="4" data-type="num" style="cursor:pointer;">Lon <span class="sort-icon"></span></th>
+            <th class="sortable" data-col="5" data-type="str" style="cursor:pointer;">Last Seen <span class="sort-icon"></span></th>
         </tr>
     </thead>
     <tbody id="repeater-list">
@@ -46,7 +47,7 @@
 </table>
 
 {% if not repeaters %}
-<p><small>No repeaters discovered yet. They will appear as adverts are received.</small></p>
+<p><small>No nodes discovered yet. They will appear as adverts are received.</small></p>
 {% endif %}
 
 <script>
@@ -63,8 +64,9 @@
             rows.forEach(function(row) {
                 var name = (row.cells[0] && row.cells[0].textContent || '').toLowerCase();
                 var prefix = (row.cells[1] && row.cells[1].textContent || '').toLowerCase();
+                var type = (row.cells[2] && row.cells[2].textContent || '').toLowerCase();
 
-                if (!query || name.indexOf(query) !== -1 || prefix.indexOf(query) !== -1) {
+                if (!query || name.indexOf(query) !== -1 || prefix.indexOf(query) !== -1 || type.indexOf(query) !== -1) {
                     row.style.display = '';
                     shown++;
                 } else {
@@ -73,7 +75,7 @@
             });
 
             if (query) {
-                statusEl.textContent = 'Showing ' + shown + ' of ' + total + ' repeaters';
+                statusEl.textContent = 'Showing ' + shown + ' of ' + total + ' nodes';
                 statusEl.style.display = 'block';
             } else {
                 statusEl.style.display = 'none';

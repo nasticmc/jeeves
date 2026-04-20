@@ -273,7 +273,7 @@ class PathBot:
             await self.db.update_from_contact(contact)
             count += 1
 
-        log.info(f"Synced {count} contacts, {self.db.count} repeaters in DB")
+        log.info(f"Synced {count} contacts, {self.db.count} nodes in DB")
 
     @staticmethod
     def _extract_advert_pub_key(payload: object) -> str | None:
