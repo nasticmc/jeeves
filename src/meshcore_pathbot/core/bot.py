@@ -33,7 +33,7 @@ _CMD_PATTERNS: dict[str, re.Pattern[str]] = {
     "trace":    re.compile(r"[Tt]race$"),
     "paths":    re.compile(r"[Pp]aths$"),
     "prefix":   re.compile(r"[Pp]refix\b"),
-    "weather":  re.compile(r"[Ww]eather\s+\d{4}$"),
+    "weather":  re.compile(r"[Ww]eather(\s+\d{4})?$"),
     "forecast": re.compile(r"[Ff]orecast(\s+\d{4})?$"),
     "help":     re.compile(r"[Hh]elp$"),
 }
@@ -643,20 +643,14 @@ class PathBot:
         # Handle weather command — current conditions for home suburb or given postcode
         if is_weather:
             log.info(f"Weather from {sender} on ch{channel_id}")
-            postcode = msg_body[len("weather"):].strip() or None
+            postcode = msg_body[len("weather"):].strip() or "3976"
             try:
-                if postcode:
-                    coords = await weather_svc.get_coords_for_postcode(postcode)
-                    if coords is None:
-                        reply = f"@[{sender}] Could not find postcode {postcode}"
-                    else:
-                        lat, lon, name = coords
-                        reply = await weather_svc.current_weather_reply(sender, lat, lon, name)
+                coords = await weather_svc.get_coords_for_postcode(postcode)
+                if coords is None:
+                    reply = f"@[{sender}] Could not find postcode {postcode}"
                 else:
-                    cfg = self.config.bot
-                    reply = await weather_svc.current_weather_reply(
-                        sender, cfg.weather_home_lat, cfg.weather_home_lon, cfg.weather_home_name
-                    )
+                    lat, lon, name = coords
+                    reply = await weather_svc.current_weather_reply(sender, lat, lon, name)
             except Exception as exc:
                 log.warning(f"Weather fetch failed: {exc}")
                 reply = f"@[{sender}] Weather unavailable, try again later"

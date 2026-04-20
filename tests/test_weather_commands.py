@@ -83,14 +83,29 @@ def test_forecast_command_disabled_by_default():
 
 # ── weather command enabled ────────────────────────────────────────────────────
 
-def test_weather_without_postcode_is_ignored():
-    """weather with no postcode should not trigger the command."""
+def test_weather_without_postcode_defaults_to_3976():
+    """weather with no postcode should geocode 3976 and reply."""
     bot, commands = _make_bot(["weather"])
 
-    event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
-    asyncio.run(bot._on_channel_msg(event))
+    fake_coords = (-38.06, 145.25, "Berwick, VIC")
+    fake_reply = "@[Alice] Berwick, VIC: 19°C, Partly cloudy"
 
-    assert len(commands.sent) == 0
+    with (
+        patch(
+            "meshcore_pathbot.core.weather.get_coords_for_postcode",
+            new=AsyncMock(return_value=fake_coords),
+        ) as mock_geocode,
+        patch(
+            "meshcore_pathbot.core.weather.current_weather_reply",
+            new=AsyncMock(return_value=fake_reply),
+        ),
+    ):
+        event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
+        asyncio.run(bot._on_channel_msg(event))
+
+    mock_geocode.assert_called_once_with("3976")
+    assert len(commands.sent) == 1
+    assert "Berwick" in commands.sent[0][1]
 
 
 def test_weather_with_non_postcode_text_is_ignored():
