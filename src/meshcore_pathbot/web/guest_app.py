@@ -13,7 +13,7 @@ from fastapi.templating import Jinja2Templates
 from ..config.schema import AppConfig
 from ..core.bot import PathBot
 from ..core.message_store import MessageStore
-from ..core.repeater_db import RepeaterDB
+from ..core.repeater_db import ADV_TYPE_NAMES, RepeaterDB
 from ..events.bus import EventBus
 
 WEB_DIR = Path(__file__).parent
@@ -82,6 +82,7 @@ def create_guest_app(
     templates.env.filters["fmt_time"] = format_timestamp
     templates.env.filters["fmt_relative"] = format_relative
     templates.env.filters["fmt_datetime"] = format_datetime
+    templates.env.filters["adv_type_name"] = lambda t: ADV_TYPE_NAMES.get(int(t or 0), f"type{t}")
     app.state.templates = templates
 
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

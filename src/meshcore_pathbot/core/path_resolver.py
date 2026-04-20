@@ -73,7 +73,7 @@ class PathResolver:
         return cleaned
 
     @staticmethod
-    def _parse_prefixes(raw: str) -> list[str]:
+    def _parse_prefixes(raw: str, hash_size: int = 1) -> list[str]:
         """Parse a raw path string into a list of hex prefix strings.
 
         Supports standard 1-byte-per-hop paths and multibyte paths:
@@ -86,8 +86,8 @@ class PathResolver:
             "fb1f:7ab2"   -> ["fb1f", "7ab2"]
             "fb1f 7ab2"   -> ["fb1f", "7ab2"]
 
-        Unseparated input is always treated as 1-byte chunks so that
-        "fb1f7a" means three 1-byte hops, not one 3-byte hop.
+        Multibyte without separators (hash_size hint required):
+            "fb1f7ab2" with hash_size=2 -> ["fb1f", "7ab2"]
 
         Returns an empty list if the input is invalid.
         """
@@ -108,11 +108,15 @@ class PathResolver:
         ):
             return segments
 
-        # Standard mode: strip all separators and split into 2-char (1-byte) chunks
+        # Strip all separators for chunk-based splitting
         cleaned = re.sub(r"[:\s,]+", "", raw).lower()
-        if not re.fullmatch(r"[0-9a-f]+", cleaned) or len(cleaned) < 2 or len(cleaned) % 2 != 0:
+        if not re.fullmatch(r"[0-9a-f]+", cleaned):
             return []
-        return [cleaned[i : i + 2] for i in range(0, len(cleaned), 2)]
+
+        chunk = max(hash_size, 1) * 2
+        if len(cleaned) < chunk or len(cleaned) % chunk != 0:
+            return []
+        return [cleaned[i : i + chunk] for i in range(0, len(cleaned), chunk)]
 
     def resolve(self, raw_path: str, preferred_repeaters: dict[str, str] | None = None) -> str:
         """Resolve a raw hex path into friendly names.
@@ -328,18 +332,18 @@ class PathResolver:
         split = ":".join(prefixes)
         return f"{split} ({len(prefixes)} hops)"
 
-    def lookup_prefixes(self, raw_path: str) -> str:
+    def lookup_prefixes(self, raw_path: str, path_hash_size: int = 1) -> str:
         """Look up repeater names for hex prefixes using best-guess disambiguation.
 
         Like resolve() but designed for the 'prefix' channel command.
         Returns a compact string: "fb=Hilltop, 1f=Valley, 7a=Tower"
         Unknown prefixes shown as "xx=?"
 
-        Handles multibyte paths (e.g. "fb1f:7ab2" from a 2-byte-hash trace reply)
-        by using the full segment as the lookup key so more bytes eliminate collisions.
+        Handles multibyte paths (e.g. "fb1f:7ab2" from a 2-byte-hash trace reply,
+        or "fb1f7ab2" when path_hash_size=2 is supplied as a hint).
         Output labels each hop with its full segment: "fb1f=Hilltop, 7ab2=Valley"
         """
-        prefixes = self._parse_prefixes(raw_path)
+        prefixes = self._parse_prefixes(raw_path, hash_size=path_hash_size)
         if not prefixes:
             return ""
 

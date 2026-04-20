@@ -165,6 +165,7 @@ class PathBot:
         self._last_command_at_by_user: dict[tuple[int, str], float] = {}
         self._lightning_task: asyncio.Task | None = None
         self._daily_forecast_task: asyncio.Task | None = None
+        self._contact_purge_task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
         self._ping_reply_count: int = 0
         self._pending_url: bool = False
@@ -214,15 +215,21 @@ class PathBot:
             )
             log.info("Daily forecast task started")
 
+        self._contact_purge_task = asyncio.create_task(
+            self._contact_purge_loop(), name="contact-purge"
+        )
+        log.info("Hourly contact purge task started")
+
     async def stop(self) -> None:
         """Gracefully disconnect from MeshCore."""
-        for task in (self._lightning_task, self._daily_forecast_task):
+        for task in (self._lightning_task, self._daily_forecast_task, self._contact_purge_task):
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
         self._lightning_task = None
         self._daily_forecast_task = None
+        self._contact_purge_task = None
 
         if self._mc:
             try:
@@ -273,7 +280,44 @@ class PathBot:
             await self.db.update_from_contact(contact)
             count += 1
 
-        log.info(f"Synced {count} contacts, {self.db.count} repeaters in DB")
+        log.info(f"Synced {count} contacts, {self.db.count} nodes in DB")
+
+    async def _purge_device_contacts(self) -> None:
+        """Remove all contacts from the MeshCore device to force fresh re-discovery."""
+        result = await self._mc.commands.get_contacts()
+        if result is None or result.type == EventType.ERROR:
+            log.warning("Contact purge: failed to fetch contacts from device")
+            return
+
+        contacts = result.payload
+        if not isinstance(contacts, dict) or not contacts:
+            log.debug("Contact purge: no contacts on device to remove")
+            return
+
+        removed = 0
+        for key, contact in list(contacts.items()):
+            pub_key = contact.get("public_key", key) if isinstance(contact, dict) else key
+            if not isinstance(pub_key, str) or len(pub_key) < 64:
+                continue
+            try:
+                res = await self._mc.commands.remove_contact(pub_key)
+                if res and res.type != EventType.ERROR:
+                    removed += 1
+                else:
+                    log.debug(f"Could not remove contact {pub_key[:8]}...: {getattr(res, 'payload', '')}")
+            except Exception as e:
+                log.warning(f"Error removing contact {pub_key[:8]}...: {e}")
+
+        log.info(f"Contact purge: removed {removed}/{len(contacts)} contacts from device")
+        await self._sync_contacts()
+
+    async def _contact_purge_loop(self) -> None:
+        """Delete all device contacts every hour so fresh advertisement data repopulates them."""
+        while True:
+            await asyncio.sleep(3600)
+            if self._mc:
+                log.info("Running hourly contact purge...")
+                await self._purge_device_contacts()
 
     @staticmethod
     def _extract_advert_pub_key(payload: object) -> str | None:
@@ -677,16 +721,15 @@ class PathBot:
         # Handle prefix command — look up repeater names from hex prefixes
         elif is_prefix:
             log.info(f"Prefix lookup from {sender} on ch{channel_id}")
-            # Extract hex argument after "prefix" keyword
             hex_arg = msg_body[len("prefix"):].strip()
             if hex_arg:
-                lookup = self.resolver.lookup_prefixes(hex_arg)
+                lookup = self.resolver.lookup_prefixes(hex_arg, path_hash_size=path_hash_size)
                 if lookup:
                     reply = f"@[{sender}] {lookup}"
                 else:
                     reply = f"@[{sender}] invalid prefix string"
             else:
-                reply = f"@[{sender}] usage: prefix <hex> (e.g. prefix fb:1f:7a)"
+                reply = f"@[{sender}] usage: prefix <hex> (e.g. prefix fb:1f:7a or fb1f:7ab2)"
         # Handle paths command
         elif is_paths:
             log.info(f"Paths from {sender} on ch{channel_id}")

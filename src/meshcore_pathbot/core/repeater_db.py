@@ -1,4 +1,4 @@
-"""SQLite-backed repeater database."""
+"""SQLite-backed node database (all discovered MeshCore nodes)."""
 
 from __future__ import annotations
 
@@ -11,8 +11,15 @@ from pathlib import Path
 
 log = logging.getLogger("pathbot.repeater_db")
 
-# MeshCore ADV_TYPE for repeaters
+# MeshCore ADV_TYPE values
 ADV_TYPE_REPEATER = 2
+ADV_TYPE_NAMES: dict[int, str] = {
+    0: "unknown",
+    1: "client",
+    2: "repeater",
+    3: "room",
+    4: "bridge",
+}
 STALE_REPEATER_AGE_DAYS = 7
 
 
@@ -111,7 +118,7 @@ class RepeaterDB:
             "SELECT public_key, prefix, name, lat, lon, type, last_seen FROM repeaters"
         ).fetchall()
         self.nodes = {row["public_key"]: dict(row) for row in rows}
-        log.info(f"Loaded {len(self.nodes)} repeaters from {self.filepath}")
+        log.info(f"Loaded {len(self.nodes)} nodes from {self.filepath}")
 
     async def save(self) -> None:
         """No-op for API compatibility; updates are persisted immediately."""
@@ -194,15 +201,16 @@ class RepeaterDB:
         ).fetchone()
         self.nodes[entry["public_key"]] = dict(row)
 
+    @staticmethod
+    def type_name(adv_type: int) -> str:
+        """Return a human-readable name for a MeshCore ADV_TYPE integer."""
+        return ADV_TYPE_NAMES.get(adv_type, f"type{adv_type}")
+
     async def update_from_contact(self, contact: dict) -> dict | None:
-        """Update DB from a contact dict. Returns entry if repeater, else None."""
+        """Update DB from a contact dict. Returns stored entry, or None if invalid."""
         pub_key = contact.get("public_key", "")
-        adv_type = contact.get("type", contact.get("adv_type", 0))
 
         if not pub_key or len(pub_key) < 2:
-            return None
-
-        if int(adv_type) != ADV_TYPE_REPEATER:
             return None
 
         entry = self._normalize_entry(contact)
@@ -212,13 +220,14 @@ class RepeaterDB:
             self._upsert_sync(entry)
             entry = self.nodes[pub_key]
 
+        type_label = self.type_name(entry["type"])
         if is_new:
             log.info(
-                f"New repeater: {entry['name']} "
+                f"New node [{type_label}]: {entry['name']} "
                 f"(prefix={entry['prefix']}, lat={entry['lat']}, lon={entry['lon']})"
             )
         else:
-            log.debug(f"Updated repeater: {entry['name']} (prefix={entry['prefix']})")
+            log.debug(f"Updated node [{type_label}]: {entry['name']} (prefix={entry['prefix']})")
 
         return entry
 
@@ -379,7 +388,7 @@ class RepeaterDB:
         """Return a formatted stats string."""
         s = self.stats()
         return (
-            f"{s['total']} repeaters, "
+            f"{s['total']} nodes, "
             f"{s['unique_prefixes']} unique prefixes, "
             f"{s['collisions']} collisions"
         )
