@@ -62,7 +62,7 @@ def test_weather_command_disabled_by_default():
     commands = DummyCommands()
     bot._mc = SimpleNamespace(commands=commands)
 
-    event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
+    event = SimpleNamespace(payload={"text": "Alice: weather 3000", "channel_idx": 2})
     asyncio.run(bot._on_channel_msg(event))
 
     assert len(commands.sent) == 0
@@ -83,21 +83,39 @@ def test_forecast_command_disabled_by_default():
 
 # ── weather command enabled ────────────────────────────────────────────────────
 
-def test_weather_home_location_reply():
-    """weather (no postcode) should call current_weather_reply with home coords."""
+def test_weather_without_postcode_defaults_to_3976():
+    """weather with no postcode should geocode 3976 and reply."""
     bot, commands = _make_bot(["weather"])
 
-    fake_reply = "@[Alice] Hampton Park: 22°C, Partly cloudy, wind 15 km/h"
+    fake_coords = (-38.06, 145.25, "Berwick, VIC")
+    fake_reply = "@[Alice] Berwick, VIC: 19°C, Partly cloudy"
 
-    with patch(
-        "meshcore_pathbot.core.weather.current_weather_reply",
-        new=AsyncMock(return_value=fake_reply),
+    with (
+        patch(
+            "meshcore_pathbot.core.weather.get_coords_for_postcode",
+            new=AsyncMock(return_value=fake_coords),
+        ) as mock_geocode,
+        patch(
+            "meshcore_pathbot.core.weather.current_weather_reply",
+            new=AsyncMock(return_value=fake_reply),
+        ),
     ):
         event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
         asyncio.run(bot._on_channel_msg(event))
 
+    mock_geocode.assert_called_once_with("3976")
     assert len(commands.sent) == 1
-    assert "Hampton Park" in commands.sent[0][1]
+    assert "Berwick" in commands.sent[0][1]
+
+
+def test_weather_with_non_postcode_text_is_ignored():
+    """weather followed by non-postcode text should not trigger the command."""
+    bot, commands = _make_bot(["weather"])
+
+    event = SimpleNamespace(payload={"text": "Alice: weather tomorrow", "channel_idx": 2})
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert len(commands.sent) == 0
 
 
 def test_weather_with_postcode_calls_geocode():
@@ -143,11 +161,19 @@ def test_weather_http_error_sends_fallback():
     """If the weather API raises an exception the bot sends a friendly fallback."""
     bot, commands = _make_bot(["weather"])
 
-    with patch(
-        "meshcore_pathbot.core.weather.current_weather_reply",
-        new=AsyncMock(side_effect=Exception("network error")),
+    fake_coords = (-37.814, 144.963, "Melbourne, VIC")
+
+    with (
+        patch(
+            "meshcore_pathbot.core.weather.get_coords_for_postcode",
+            new=AsyncMock(return_value=fake_coords),
+        ),
+        patch(
+            "meshcore_pathbot.core.weather.current_weather_reply",
+            new=AsyncMock(side_effect=Exception("network error")),
+        ),
     ):
-        event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
+        event = SimpleNamespace(payload={"text": "Alice: weather 3000", "channel_idx": 2})
         asyncio.run(bot._on_channel_msg(event))
 
     assert len(commands.sent) == 1
@@ -224,13 +250,20 @@ def test_weather_respects_rate_limit():
     commands = DummyCommands()
     bot._mc = SimpleNamespace(commands=commands)
 
-    fake_reply = "@[Alice] Hampton Park: 22°C, Clear sky"
+    fake_coords = (-37.814, 144.963, "Melbourne, VIC")
+    fake_reply = "@[Alice] Melbourne, VIC: 22°C, Clear sky"
 
-    with patch(
-        "meshcore_pathbot.core.weather.current_weather_reply",
-        new=AsyncMock(return_value=fake_reply),
+    with (
+        patch(
+            "meshcore_pathbot.core.weather.get_coords_for_postcode",
+            new=AsyncMock(return_value=fake_coords),
+        ),
+        patch(
+            "meshcore_pathbot.core.weather.current_weather_reply",
+            new=AsyncMock(return_value=fake_reply),
+        ),
     ):
-        event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
+        event = SimpleNamespace(payload={"text": "Alice: weather 3000", "channel_idx": 2})
         asyncio.run(bot._on_channel_msg(event))
         asyncio.run(bot._on_channel_msg(event))
 
@@ -248,7 +281,7 @@ def test_weather_command_on_different_channel_blocked():
         new=AsyncMock(return_value="@[Alice] Hampton Park: 22°C"),
     ):
         # Send on channel 2 — but weather is only enabled on channel 3
-        event = SimpleNamespace(payload={"text": "Alice: weather", "channel_idx": 2})
+        event = SimpleNamespace(payload={"text": "Alice: weather 3000", "channel_idx": 2})
         asyncio.run(bot._on_channel_msg(event))
 
     assert len(commands.sent) == 0
