@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import datetime
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 
@@ -26,6 +27,16 @@ log = logging.getLogger("pathbot.bot")
 _PROMO_URL = "https://j.eastmesh.au"
 _MAX_MSG_LEN = 130
 _PING_URL_INTERVAL = 7  # append URL on every Nth ping reply
+
+_CMD_PATTERNS: dict[str, re.Pattern[str]] = {
+    "ping":     re.compile(r"[Pp]ing$"),
+    "trace":    re.compile(r"[Tt]race$"),
+    "paths":    re.compile(r"[Pp]aths$"),
+    "prefix":   re.compile(r"[Pp]refix\b"),
+    "weather":  re.compile(r"[Ww]eather\s+\d{4}$"),
+    "forecast": re.compile(r"[Ff]orecast(\s+\d{4})?$"),
+    "help":     re.compile(r"[Hh]elp$"),
+}
 
 
 def parse_rx_log_data(payload: Any) -> dict[str, Any]:
@@ -579,14 +590,13 @@ class PathBot:
             log.debug(f"Ignoring message from {sender} (in ignore list)")
             return
 
-        body_lower = msg_body.lower()
-        is_trace = "trace" in body_lower
-        is_ping = "ping" in body_lower
-        is_paths = "paths" in body_lower
-        is_prefix = body_lower.startswith("prefix")
-        is_weather = body_lower.startswith("weather")
-        is_forecast = body_lower.startswith("forecast")
-        is_help = body_lower.startswith("help")
+        is_ping =     bool(_CMD_PATTERNS["ping"].match(msg_body))
+        is_trace =    bool(_CMD_PATTERNS["trace"].match(msg_body))
+        is_paths =    bool(_CMD_PATTERNS["paths"].match(msg_body))
+        is_prefix =   bool(_CMD_PATTERNS["prefix"].match(msg_body))
+        is_weather =  bool(_CMD_PATTERNS["weather"].match(msg_body))
+        is_forecast = bool(_CMD_PATTERNS["forecast"].match(msg_body))
+        is_help =     bool(_CMD_PATTERNS["help"].match(msg_body))
 
         if not is_trace and not is_ping and not is_paths and not is_prefix and not is_weather and not is_forecast and not is_help:
             return
