@@ -344,6 +344,21 @@ class PathResolver:
         Output labels each hop with its full segment: "fb1f=Hilltop, 7ab2=Valley"
         """
         prefixes = self._parse_prefixes(raw_path, hash_size=path_hash_size)
+        # Prefix command usability: when given a bare 4-char hex token like "fb1f",
+        # interpret it as a single 2-byte prefix rather than two 1-byte hops.
+        # (Only applies when no explicit separators are provided.)
+        if (
+            not prefixes
+            or (
+                ":" not in raw_path
+                and "," not in raw_path
+                and not re.search(r"\s", raw_path)
+                and re.fullmatch(r"[0-9a-fA-F]{4}", raw_path.strip())
+            )
+        ):
+            token = raw_path.strip().lower()
+            if re.fullmatch(r"[0-9a-f]{4}", token):
+                prefixes = [token]
         if not prefixes:
             return ""
 

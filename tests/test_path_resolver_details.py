@@ -209,21 +209,37 @@ def test_lookup_prefixes_2byte_unknown_shows_question_mark(tmp_path: Path) -> No
     assert "?" in result
 
 
-def test_lookup_prefixes_4char_no_separator_splits_into_1byte_hops(tmp_path: Path) -> None:
-    """A 4-char hex string without separator is split into two 1-byte hops."""
+def test_lookup_prefixes_4char_no_separator_assumes_2byte_prefix(tmp_path: Path) -> None:
+    """A 4-char hex string without separator is treated as a single 2-byte prefix."""
     db = RepeaterDB(tmp_path / "repeaters.db")
     asyncio.run(db.load())
     asyncio.run(db.update_from_contact(
         {"public_key": "fb1111", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
     ))
     asyncio.run(db.update_from_contact(
-        {"public_key": "1f2222", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+        {"public_key": "fb1f22", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
     ))
     resolver = PathResolver(db)
-    # "fb1f" without separator → two 1-byte hops ["fb", "1f"]
+    # "fb1f" without separator → one 2-byte prefix hop ["fb1f"]
     result = resolver.lookup_prefixes("fb1f")
-    assert "Hilltop" in result
     assert "Valley" in result
+    assert "Hilltop" not in result
+
+
+def test_lookup_prefixes_4char_no_separator_ignores_hash_size_hint(tmp_path: Path) -> None:
+    """A bare 4-char token should still be interpreted as one 2-byte prefix."""
+    db = RepeaterDB(tmp_path / "repeaters.db")
+    asyncio.run(db.load())
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1111", "adv_type": 2, "adv_name": "Hilltop", "adv_lat": 0, "adv_lon": 0}
+    ))
+    asyncio.run(db.update_from_contact(
+        {"public_key": "fb1f22", "adv_type": 2, "adv_name": "Valley", "adv_lat": 0, "adv_lon": 0}
+    ))
+    resolver = PathResolver(db)
+    result = resolver.lookup_prefixes("fb1f", path_hash_size=3)
+    assert "Valley" in result
+    assert "Hilltop" not in result
 
 
 def test_lookup_prefixes_6char_no_separator_splits_into_1byte_hops(tmp_path: Path) -> None:
