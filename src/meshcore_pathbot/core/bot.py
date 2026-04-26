@@ -8,6 +8,7 @@ import datetime
 import logging
 import re
 import time
+from collections import deque
 from dataclasses import dataclass, field
 
 from meshcore import EventType, MeshCore
@@ -28,10 +29,18 @@ _PROMO_URL = "https://j.eastmesh.au"
 _MAX_MSG_LEN = 130
 _PING_URL_INTERVAL = 7  # append URL on every Nth ping reply
 
+# How long an RX_LOG_DATA entry stays valid waiting for its CHANNEL_MSG_RECV pair.
+# After this, the entry is dropped — the channel message is treated as having no
+# path data rather than being attributed to a stale, unrelated packet.
+_RX_PATH_TTL_SECONDS = 10.0
+# Meshcore payload type constant for channel (flood/group) text messages.
+_PAYLOAD_TYPE_CHANNEL_MSG = 0x05
+
 _CMD_PATTERNS: dict[str, re.Pattern[str]] = {
     "ping":     re.compile(r"[Pp]ing$"),
     "trace":    re.compile(r"[Tt]race$"),
     "paths":    re.compile(r"[Pp]aths$"),
+    "multipath": re.compile(r"[Mm]ultipath$"),
     "prefix":   re.compile(r"[Pp]refix\b"),
     "weather":  re.compile(r"[Ww]eather(\s+\d{4})?$"),
     "forecast": re.compile(r"[Ff]orecast(\s+\d{4})?$"),
@@ -59,12 +68,18 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
         path_len = payload.get("path_len")
         path_hash_size = payload.get("path_hash_size")
         raw_path = payload.get("path")
+        chan_hash = payload.get("chan_hash")
+        payload_type = payload.get("payload_type")
         if isinstance(path_len, int) and path_len >= 0:
             result["path_len"] = path_len
         if isinstance(path_hash_size, int) and path_hash_size > 0:
             result["path_hash_size"] = path_hash_size
         if isinstance(raw_path, str):
             result["full_path"] = raw_path.lower().replace(" ", "")
+        if isinstance(chan_hash, str) and chan_hash:
+            result["chan_hash"] = chan_hash.lower()
+        if isinstance(payload_type, int):
+            result["payload_type"] = payload_type
 
         if "path_len" in result and "path_hash_size" in result and "full_path" in result:
             hop_len = result["path_hash_size"] * 2
@@ -161,7 +176,17 @@ class PathBot:
         self.resolver = PathResolver(db, config)
         self.stats = BotStats()
         self._mc: MeshCore | None = None
+        # Legacy single-slot fallback used when no channel-hash correlation is
+        # available (e.g. tests). Production multi-channel correlation uses
+        # _rx_path_by_chan_hash below.
         self._latest_rx_path: dict[str, Any] = {}
+        # Per-channel FIFO of recently logged paths, keyed by chan_hash (the
+        # 1-byte channel hash meshcore stamps on each flood-msg log entry).
+        # This avoids cross-channel contamination of path data when packets
+        # for multiple channels arrive interleaved.
+        self._rx_path_by_chan_hash: dict[str, deque[tuple[float, dict[str, Any]]]] = {}
+        # channel_idx -> chan_hash mapping, populated from the radio at startup.
+        self._chan_hash_by_idx: dict[int, str] = {}
         self._last_command_at_by_user: dict[tuple[int, str], float] = {}
         self._lightning_task: asyncio.Task | None = None
         self._daily_forecast_task: asyncio.Task | None = None
@@ -183,11 +208,12 @@ class PathBot:
 
         await self._sync_contacts()
 
-        self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
-        self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
-
         # Subscribe to each active channel
         active_channels = self.config.bot.get_active_channels()
+        await self._sync_channel_hashes(active_channels)
+
+        self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
+        self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
         for ch in active_channels:
             self._mc.subscribe(
                 EventType.CHANNEL_MSG_RECV,
@@ -281,6 +307,31 @@ class PathBot:
             count += 1
 
         log.info(f"Synced {count} contacts, {self.db.count} nodes in DB")
+
+    async def _sync_channel_hashes(self, channels) -> None:
+        """Fetch channel_hash for each active channel so RX_LOG_DATA entries
+        can be correlated to the right channel.
+
+        chan_hash is the 1-byte hash meshcore stamps on each flood-msg log
+        record (see MeshcorePacketParser.parsePacketPayload). Without this
+        mapping, RX log entries for one channel can be wrongly attributed to
+        a message arriving on a different channel.
+        """
+        self._chan_hash_by_idx = {}
+        for ch in channels:
+            try:
+                result = await self._mc.commands.get_channel(ch.id)
+            except Exception as exc:
+                log.warning(f"Could not fetch channel {ch.id} for hash mapping: {exc}")
+                continue
+            if result is None or result.type == EventType.ERROR:
+                log.warning(f"Channel {ch.id} hash lookup failed: {getattr(result, 'payload', None)}")
+                continue
+            info = result.payload
+            chan_hash = info.get("channel_hash") if isinstance(info, dict) else None
+            if isinstance(chan_hash, str) and chan_hash:
+                self._chan_hash_by_idx[ch.id] = chan_hash.lower()
+        log.info(f"Channel hash map: {self._chan_hash_by_idx}")
 
     async def _purge_device_contacts(self) -> None:
         """Remove all contacts from the MeshCore device to force fresh re-discovery."""
@@ -444,6 +495,43 @@ class PathBot:
 
         return f"@[{sender}] {len(seen)} paths: {', '.join(seen)}"
 
+    def _build_multipath_reply(self, sender: str, channel_id: int) -> str:
+        """Build reply for the 'multipath' command.
+
+        Reports every distinct path the bot has seen for the sender's most
+        recent prior message on this channel (i.e. the message they sent
+        just before issuing `multipath`). In a flooded mesh the same message
+        can arrive via several routes; this surfaces them all rather than
+        just the first one the firmware delivered.
+        """
+        result = self.message_store.get_paths_for_recent_message(
+            sender, channel_id, exclude_command="multipath",
+        )
+        if not result:
+            return f"@[{sender}] no recent message to trace"
+
+        text, raw_paths = result
+        if not raw_paths:
+            return f"@[{sender}] no paths recorded for last msg"
+
+        formatted: list[str] = []
+        for rp in raw_paths:
+            if not rp or len(rp) < 2 or len(rp) % 2 != 0:
+                formatted.append("direct")
+            else:
+                hop_count = len(rp) // 2
+                split = ":".join(rp[i:i + 2] for i in range(0, len(rp), 2))
+                formatted.append(f"{split} ({hop_count})")
+
+        # Preserve order, dedupe identical formatted paths.
+        seen: list[str] = []
+        for f in formatted:
+            if f not in seen:
+                seen.append(f)
+
+        snippet = text if len(text) <= 20 else text[:17] + "..."
+        return f"@[{sender}] \"{snippet}\" {len(seen)} paths: {', '.join(seen)}"
+
     async def send_channel_message(self, channel_id: int, text: str) -> bool:
         """Send a text message on the given channel, serialized via a global lock.
 
@@ -572,11 +660,67 @@ class PathBot:
             await asyncio.sleep(90)
 
     async def _on_rx_log_data(self, event) -> None:
-        """Handle RX_LOG_DATA — extract and cache path info for the next channel message."""
+        """Handle RX_LOG_DATA — extract and cache path info, keyed by channel hash.
+
+        meshcore stamps each flood-msg log entry with the channel's chan_hash.
+        We enqueue per chan_hash so that a CHANNEL_MSG_RECV on channel A is not
+        matched against a path that was logged for channel B. Non-channel
+        events (acks, adverts, traces, contact msgs) are ignored here so they
+        cannot displace pending channel-message paths.
+        """
         parsed = parse_rx_log_data(event.payload)
-        if parsed:
-            self._latest_rx_path = parsed
-            log.debug(f"RX log path: {parsed}")
+        if not parsed:
+            return
+
+        # Always update the legacy single-slot fallback (used by tests and as a
+        # last resort when chan_hash mapping is unavailable).
+        self._latest_rx_path = parsed
+        log.debug(f"RX log path: {parsed}")
+
+        chan_hash = parsed.get("chan_hash")
+        payload_type = parsed.get("payload_type")
+        if not isinstance(chan_hash, str) or not chan_hash:
+            return
+        if payload_type is not None and payload_type != _PAYLOAD_TYPE_CHANNEL_MSG:
+            return
+
+        now = time.monotonic()
+        queue = self._rx_path_by_chan_hash.setdefault(chan_hash, deque())
+        queue.append((now, parsed))
+        cutoff = now - _RX_PATH_TTL_SECONDS
+        while queue and queue[0][0] < cutoff:
+            queue.popleft()
+
+    def _consume_rx_path_for_channel(self, channel_idx: int) -> dict[str, Any]:
+        """Pop the oldest RX log entry that belongs to the given channel.
+
+        Falls back to the legacy single-slot cache when no chan_hash mapping is
+        configured (e.g. unit tests that set _latest_rx_path directly), or when
+        the per-channel queue is empty.
+        """
+        chan_hash = self._chan_hash_by_idx.get(channel_idx)
+        if chan_hash:
+            queue = self._rx_path_by_chan_hash.get(chan_hash)
+            cutoff = time.monotonic() - _RX_PATH_TTL_SECONDS
+            while queue and queue[0][0] < cutoff:
+                queue.popleft()
+            if queue:
+                _, parsed = queue.popleft()
+                # Successful correlation — the legacy slot is no longer the
+                # source of truth for this message, so clear it to prevent
+                # accidental reuse on a later un-correlated message.
+                self._latest_rx_path = {}
+                return parsed
+            # Mapping known but no matching log entry — return nothing rather
+            # than fall through to the legacy slot, which may belong to a
+            # different channel.
+            self._latest_rx_path = {}
+            return {}
+
+        # No chan_hash mapping (legacy / test path): use single-slot cache.
+        rx = self._latest_rx_path
+        self._latest_rx_path = {}
+        return rx
 
 
     @staticmethod
@@ -601,13 +745,21 @@ class PathBot:
         # Determine which channel this message arrived on
         channel_id = data.get("channel_idx", self.config.bot.channel)
 
-        # Path data comes from the most recent RX_LOG_DATA event (radio log),
-        # not from the channel message payload itself.
-        rx = self._latest_rx_path
-        self._latest_rx_path = {}
+        # Path data comes from a correlated RX_LOG_DATA event (radio log).
+        # _consume_rx_path_for_channel routes by chan_hash so a packet logged
+        # for a different channel cannot be wrongly attributed to this msg.
+        rx = self._consume_rx_path_for_channel(channel_id)
         raw_path = rx.get("path", "")
         full_path = rx.get("full_path", raw_path)
-        path_hash_size = rx.get("path_hash_size", 1)
+        # path_hash_size is also encoded directly in the channel message itself
+        # (top 2 bits of the path_len byte = path_hash_mode = path_hash_size-1).
+        # Prefer that over any cached value: a stale cached size from a
+        # different region/channel would corrupt prefix-command parsing.
+        path_hash_mode = data.get("path_hash_mode")
+        if isinstance(path_hash_mode, int) and path_hash_mode >= 0:
+            path_hash_size = path_hash_mode + 1
+        else:
+            path_hash_size = rx.get("path_hash_size", 1)
         path_len = rx.get("path_len", data.get("path_len", 0))
 
         log.debug(
@@ -634,15 +786,16 @@ class PathBot:
             log.debug(f"Ignoring message from {sender} (in ignore list)")
             return
 
-        is_ping =     bool(_CMD_PATTERNS["ping"].match(msg_body))
-        is_trace =    bool(_CMD_PATTERNS["trace"].match(msg_body))
-        is_paths =    bool(_CMD_PATTERNS["paths"].match(msg_body))
-        is_prefix =   bool(_CMD_PATTERNS["prefix"].match(msg_body))
-        is_weather =  bool(_CMD_PATTERNS["weather"].match(msg_body))
-        is_forecast = bool(_CMD_PATTERNS["forecast"].match(msg_body))
-        is_help =     bool(_CMD_PATTERNS["help"].match(msg_body))
+        is_ping =      bool(_CMD_PATTERNS["ping"].match(msg_body))
+        is_trace =     bool(_CMD_PATTERNS["trace"].match(msg_body))
+        is_paths =     bool(_CMD_PATTERNS["paths"].match(msg_body))
+        is_multipath = bool(_CMD_PATTERNS["multipath"].match(msg_body))
+        is_prefix =    bool(_CMD_PATTERNS["prefix"].match(msg_body))
+        is_weather =   bool(_CMD_PATTERNS["weather"].match(msg_body))
+        is_forecast =  bool(_CMD_PATTERNS["forecast"].match(msg_body))
+        is_help =      bool(_CMD_PATTERNS["help"].match(msg_body))
 
-        if not is_trace and not is_ping and not is_paths and not is_prefix and not is_weather and not is_forecast and not is_help:
+        if not (is_trace or is_ping or is_paths or is_multipath or is_prefix or is_weather or is_forecast or is_help):
             return
 
         # Determine which command matched and check per-channel permission
@@ -654,6 +807,8 @@ class PathBot:
             cmd_name = "forecast"
         elif is_prefix:
             cmd_name = "prefix"
+        elif is_multipath:
+            cmd_name = "multipath"
         elif is_paths:
             cmd_name = "paths"
         elif is_trace:
@@ -734,6 +889,11 @@ class PathBot:
         elif is_paths:
             log.info(f"Paths from {sender} on ch{channel_id}")
             reply = self._build_paths_reply(sender)
+        # Handle multipath command — every path seen for the sender's most
+        # recent (non-multipath) message text on this channel.
+        elif is_multipath:
+            log.info(f"Multipath from {sender} on ch{channel_id}")
+            reply = self._build_multipath_reply(sender, channel_id)
         # Handle trace command
         elif is_trace:
             log.info(f"Trace from {sender} on ch{channel_id}")

@@ -273,6 +273,7 @@
                     <th>trace</th>
                     <th>ping</th>
                     <th>paths</th>
+                    <th>multipath</th>
                     <th>prefix</th>
                     <th>weather</th>
                     <th>forecast</th>
@@ -290,6 +291,7 @@
                     <td><input type="checkbox" class="ch-cmd" data-cmd="trace" {% if 'trace' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="ping" {% if 'ping' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="paths" {% if 'paths' in ch.enabled_commands %}checked{% endif %}></td>
+                    <td><input type="checkbox" class="ch-cmd" data-cmd="multipath" {% if 'multipath' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="prefix" {% if 'prefix' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="weather" {% if 'weather' in ch.enabled_commands %}checked{% endif %}></td>
                     <td><input type="checkbox" class="ch-cmd" data-cmd="forecast" {% if 'forecast' in ch.enabled_commands %}checked{% endif %}></td>
@@ -439,7 +441,7 @@
         var tr = document.createElement('tr');
         tr.setAttribute('data-channel-id', id);
 
-        var allCmds = ['trace', 'ping', 'paths', 'prefix', 'weather', 'forecast', 'help'];
+        var allCmds = ['trace', 'ping', 'paths', 'multipath', 'prefix', 'weather', 'forecast', 'help'];
         var html = '<td><strong>' + id + '</strong></td>';
         html += '<td><input type="text" class="ch-name" value="' + (name || '') + '" placeholder="Channel ' + id + '"></td>';
         allCmds.forEach(function(cmd) {

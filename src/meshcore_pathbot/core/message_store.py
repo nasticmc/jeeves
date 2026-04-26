@@ -246,6 +246,82 @@ class MessageStore:
         ).fetchall()
         return [str(row["path"]) for row in rows]
 
+    def get_paths_for_recent_message(
+        self,
+        peer: str,
+        channel: int | None = None,
+        exclude_command: str | None = None,
+    ) -> tuple[str, list[str]] | None:
+        """Return (text, paths) for this peer's most recent inbound message.
+
+        Used by the `multipath` command to surface every path a single message
+        arrived on. When `exclude_command` is given (e.g. "multipath") the
+        most recent message whose body equals that command — case-insensitive,
+        whitespace-trimmed — is skipped so the report describes the prior
+        message rather than the command that triggered the lookup.
+
+        Returns None when no eligible message exists for this peer/channel.
+        Paths are returned in arrival order (oldest first).
+        """
+        if channel is None:
+            recent_row = self._conn.execute(
+                """
+                SELECT text FROM messages
+                WHERE direction = 'in' AND LOWER(peer) = LOWER(?)
+                ORDER BY timestamp DESC
+                LIMIT 50
+                """,
+                (peer,),
+            ).fetchall()
+        else:
+            recent_row = self._conn.execute(
+                """
+                SELECT text FROM messages
+                WHERE direction = 'in' AND LOWER(peer) = LOWER(?) AND channel = ?
+                ORDER BY timestamp DESC
+                LIMIT 50
+                """,
+                (peer, channel),
+            ).fetchall()
+
+        skip = exclude_command.strip().lower() if exclude_command else None
+        text: str | None = None
+        for row in recent_row:
+            candidate = str(row["text"])
+            body = candidate.split(": ", 1)[1] if ": " in candidate else candidate
+            if skip and body.strip().lower() == skip:
+                continue
+            text = candidate
+            break
+
+        if text is None:
+            return None
+
+        if channel is None:
+            path_rows = self._conn.execute(
+                """
+                SELECT COALESCE(path, '') AS path
+                FROM messages
+                WHERE direction = 'in' AND LOWER(peer) = LOWER(?) AND text = ?
+                ORDER BY timestamp ASC
+                """,
+                (peer, text),
+            ).fetchall()
+        else:
+            path_rows = self._conn.execute(
+                """
+                SELECT COALESCE(path, '') AS path
+                FROM messages
+                WHERE direction = 'in' AND LOWER(peer) = LOWER(?)
+                  AND channel = ? AND text = ?
+                ORDER BY timestamp ASC
+                """,
+                (peer, channel, text),
+            ).fetchall()
+
+        body = text.split(": ", 1)[1] if ": " in text else text
+        return body, [str(r["path"]) for r in path_rows]
+
     async def add_event(self, event_type: str) -> None:
         """Record a lightweight packet event (e.g. 'advert')."""
         ts = time.time()
