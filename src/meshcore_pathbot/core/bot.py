@@ -40,6 +40,7 @@ _CMD_PATTERNS: dict[str, re.Pattern[str]] = {
     "ping":     re.compile(r"[Pp]ing$"),
     "trace":    re.compile(r"[Tt]race$"),
     "paths":    re.compile(r"[Pp]aths$"),
+    "multipath": re.compile(r"[Mm]ultipath$"),
     "prefix":   re.compile(r"[Pp]refix\b"),
     "weather":  re.compile(r"[Ww]eather(\s+\d{4})?$"),
     "forecast": re.compile(r"[Ff]orecast(\s+\d{4})?$"),
@@ -494,6 +495,43 @@ class PathBot:
 
         return f"@[{sender}] {len(seen)} paths: {', '.join(seen)}"
 
+    def _build_multipath_reply(self, sender: str, channel_id: int) -> str:
+        """Build reply for the 'multipath' command.
+
+        Reports every distinct path the bot has seen for the sender's most
+        recent prior message on this channel (i.e. the message they sent
+        just before issuing `multipath`). In a flooded mesh the same message
+        can arrive via several routes; this surfaces them all rather than
+        just the first one the firmware delivered.
+        """
+        result = self.message_store.get_paths_for_recent_message(
+            sender, channel_id, exclude_command="multipath",
+        )
+        if not result:
+            return f"@[{sender}] no recent message to trace"
+
+        text, raw_paths = result
+        if not raw_paths:
+            return f"@[{sender}] no paths recorded for last msg"
+
+        formatted: list[str] = []
+        for rp in raw_paths:
+            if not rp or len(rp) < 2 or len(rp) % 2 != 0:
+                formatted.append("direct")
+            else:
+                hop_count = len(rp) // 2
+                split = ":".join(rp[i:i + 2] for i in range(0, len(rp), 2))
+                formatted.append(f"{split} ({hop_count})")
+
+        # Preserve order, dedupe identical formatted paths.
+        seen: list[str] = []
+        for f in formatted:
+            if f not in seen:
+                seen.append(f)
+
+        snippet = text if len(text) <= 20 else text[:17] + "..."
+        return f"@[{sender}] \"{snippet}\" {len(seen)} paths: {', '.join(seen)}"
+
     async def send_channel_message(self, channel_id: int, text: str) -> bool:
         """Send a text message on the given channel, serialized via a global lock.
 
@@ -748,15 +786,16 @@ class PathBot:
             log.debug(f"Ignoring message from {sender} (in ignore list)")
             return
 
-        is_ping =     bool(_CMD_PATTERNS["ping"].match(msg_body))
-        is_trace =    bool(_CMD_PATTERNS["trace"].match(msg_body))
-        is_paths =    bool(_CMD_PATTERNS["paths"].match(msg_body))
-        is_prefix =   bool(_CMD_PATTERNS["prefix"].match(msg_body))
-        is_weather =  bool(_CMD_PATTERNS["weather"].match(msg_body))
-        is_forecast = bool(_CMD_PATTERNS["forecast"].match(msg_body))
-        is_help =     bool(_CMD_PATTERNS["help"].match(msg_body))
+        is_ping =      bool(_CMD_PATTERNS["ping"].match(msg_body))
+        is_trace =     bool(_CMD_PATTERNS["trace"].match(msg_body))
+        is_paths =     bool(_CMD_PATTERNS["paths"].match(msg_body))
+        is_multipath = bool(_CMD_PATTERNS["multipath"].match(msg_body))
+        is_prefix =    bool(_CMD_PATTERNS["prefix"].match(msg_body))
+        is_weather =   bool(_CMD_PATTERNS["weather"].match(msg_body))
+        is_forecast =  bool(_CMD_PATTERNS["forecast"].match(msg_body))
+        is_help =      bool(_CMD_PATTERNS["help"].match(msg_body))
 
-        if not is_trace and not is_ping and not is_paths and not is_prefix and not is_weather and not is_forecast and not is_help:
+        if not (is_trace or is_ping or is_paths or is_multipath or is_prefix or is_weather or is_forecast or is_help):
             return
 
         # Determine which command matched and check per-channel permission
@@ -768,6 +807,8 @@ class PathBot:
             cmd_name = "forecast"
         elif is_prefix:
             cmd_name = "prefix"
+        elif is_multipath:
+            cmd_name = "multipath"
         elif is_paths:
             cmd_name = "paths"
         elif is_trace:
@@ -848,6 +889,11 @@ class PathBot:
         elif is_paths:
             log.info(f"Paths from {sender} on ch{channel_id}")
             reply = self._build_paths_reply(sender)
+        # Handle multipath command — every path seen for the sender's most
+        # recent (non-multipath) message text on this channel.
+        elif is_multipath:
+            log.info(f"Multipath from {sender} on ch{channel_id}")
+            reply = self._build_multipath_reply(sender, channel_id)
         # Handle trace command
         elif is_trace:
             log.info(f"Trace from {sender} on ch{channel_id}")
