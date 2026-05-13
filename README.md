@@ -1,14 +1,30 @@
 # The mess we call Jeeves
 
 
-Connects to a MeshCore companion radio, listens for `trace` and `ping` commands on a channel, resolves hex path prefixes to repeater names using a persistent database, and replies on the channel. Includes a full web dashboard for live monitoring, repeater management, path visualization, and configuration.
+Connects to a MeshCore companion radio, listens for commands on configured channels, resolves hex path prefixes to repeater names using a persistent database, and replies on the channel. Includes a full web dashboard for live monitoring, repeater management, path visualization, and configuration.
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `trace` | Resolves the hop path to repeater names |
+| `ping` | Acknowledges receipt with path and hop count |
+| `paths` | Lists unique paths seen from the sender |
+| `multipath` | Shows all distinct paths for the sender's most recent message |
+| `prefix <hex>` | Looks up repeater names for given hex prefixes (e.g. `prefix fb:1f:7a`) |
+| `weather [postcode]` | Current conditions for home location or a given postcode |
+| `forecast [postcode]` | 3-day forecast for home location or a given postcode |
+| `help` | Lists enabled commands on the current channel |
 
 ### Features
 
 - **Path resolution** — resolves 1-byte and multibyte (2-byte hash) hex path prefixes to repeater names with geographic disambiguation
+- **Per-channel command control** — each channel independently enables commands; `weather` and `forecast` are off by default
+- **Rate limiting** — optional per-user per-channel cooldown to prevent command spam
 - **Web dashboard** (port 8075) — live message feed, path visualizer, repeater management, overlap analysis, statistics, and full settings UI
 - **Guest dashboard** (port 8076, optional) — read-only view of ping history, paths, and repeater info
-- **Weather & forecasts** — per-channel `weather` and `forecast` commands via Open-Meteo
+- **Weather & forecasts** — `weather` and `forecast` commands via Open-Meteo, with optional postcode lookup
+- **Daily forecast broadcast** — scheduled 3-day forecast sent to configured channels at a set hour (configurable IANA timezone)
 - **Radio management** — read and update radio name, frequency, TX power, and channel keys directly from the web UI
 - **Systemd & Docker** — production-ready deployment with auto-restart
 
@@ -33,17 +49,25 @@ Connection (pick one):
 
 Options:
   -C, --config FILE     TOML config file
-  -c, --channel N       Channel to listen on (default: 2)
-  -r, --repeaters-file  Repeaters DB path (.db preferred)
-  -i, --ignore NAME     Node names to ignore
+  -p, --port PORT       TCP port (default: 5000)
+  -B, --baud RATE       Serial baud rate
+  -c, --channel N       Channel to listen on (default: 2, used when no [[bot.channels]] defined)
+  -r, --repeaters-file FILE  Repeaters DB path (.db preferred; .json auto-migrates)
+  -i, --ignore NAME     Additional node names to ignore
   -d, --debug           Enable debug logging
-  --no-web              Disable web dashboard
+  --web-host HOST       Web dashboard bind host
   --web-port PORT       Web dashboard port (default: 8075)
+  --no-web              Disable web dashboard
 ```
 
 ## Configuration
 
 Copy `config.example.toml` to `config.toml` and edit to your setup. CLI arguments override config file values.
+
+Key settings:
+- **`[[bot.channels]]`** — define one or more channels with their enabled commands and rate limit settings; if omitted, falls back to `bot.channel`
+- **`bot.timezone`** — IANA timezone for daily forecast scheduling (e.g. `"Australia/Melbourne"`); defaults to system local time
+- **`guest_web.ping_channels`** — restrict the guest dashboard to specific channels (empty = all ping-enabled channels)
 
 ## Docker
 
