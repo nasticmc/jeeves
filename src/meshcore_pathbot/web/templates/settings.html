@@ -206,31 +206,6 @@
     </fieldset>
 
     <fieldset>
-        <legend>Lightning Alerts</legend>
-        <p><small>When enabled, the bot polls Open-Meteo for possible thunderstorm activity within a 25 km radius of the bot's location (bot.lat/lon) and broadcasts an alert to the selected channels. Requires <strong>Bot Latitude/Longitude</strong> to be set.</small></p>
-        <label>
-            <input type="checkbox" name="lightning_alert_enabled" value="true" {% if config.bot.lightning_alert_enabled %}checked{% endif %}>
-            Enable lightning alerts
-        </label>
-        <div class="grid">
-            <label>
-                Check Interval (minutes)
-                <input type="number" name="lightning_alert_interval_minutes" value="{{ config.bot.lightning_alert_interval_minutes }}" min="1" step="1">
-            </label>
-        </div>
-        <label>Alert Channels</label>
-        <div class="grid">
-            {% for ch in config.bot.get_active_channels() %}
-            <label>
-                <input type="checkbox" name="lightning_alert_channels" value="{{ ch.id }}" {% if ch.id in config.bot.lightning_alert_channels %}checked{% endif %}>
-                {{ ch.id }}{% if ch.name %} ({{ ch.name }}){% endif %}
-            </label>
-            {% endfor %}
-        </div>
-        <small>At least one channel must be selected; leaving all unchecked will disable lightning alerts.</small>
-    </fieldset>
-
-    <fieldset>
         <legend>Daily Forecast</legend>
         <p><small>When enabled, the bot sends a 3-day forecast for the Weather Home Location to the selected channels at the configured hour each morning (Melbourne time).</small></p>
         <label>
@@ -523,7 +498,6 @@
         update();
     }
 
-    syncFeatureEnabled('lightning_alert_channels', 'lightning_alert_enabled');
     syncFeatureEnabled('daily_forecast_channels', 'daily_forecast_enabled');
 
     /* ────────── Helper: show toast ────────── */
@@ -684,7 +658,7 @@
                         '<td><strong>' + idx + '</strong></td>' +
                         '<td><input type="text" class="rc-name" data-idx="' + idx + '" value="' + name.replace(/"/g, '&quot;') + '" placeholder="(empty)"></td>' +
                         '<td><input type="text" class="rc-key" data-idx="' + idx + '" value="" placeholder="Set new key..." autocomplete="off"></td>' +
-                        '<td><code class="rc-secret" style="font-size:0.75em;word-break:break-all;">' + (secretHex || '<em>—</em>') + '</code></td>' +
+                        '<td><code class="rc-secret" style="font-size:0.75em;word-break:break-all;">' + (secretHex || '<em>masked</em>') + '</code></td>' +
                         '<td><code class="rc-hash">' + (hash || '—') + '</code></td>' +
                         '<td><button type="button" class="outline rc-save-btn" data-idx="' + idx + '">Save</button></td>';
                     rcBody.appendChild(tr);
@@ -734,7 +708,7 @@
                             } else {
                                 tr.querySelector('.rc-key').value = '';
                                 showToast('Channel ' + idx + ' updated on radio', 'success');
-                                // Re-read all channels to refresh secret/hash display
+                                // Re-read all channels to refresh masked secret/hash display
                                 loadRadioChannels();
                             }
                         })

@@ -124,10 +124,11 @@ async def radio_channels(bot=Depends(get_bot)):
                 info = result.payload
                 secret_bytes = info.get("channel_secret")
                 secret_hex = secret_bytes.hex() if isinstance(secret_bytes, (bytes, bytearray)) else ""
+                masked_secret = f"{secret_hex[:6]}…{secret_hex[-4:]}" if len(secret_hex) >= 12 else ("••••" if secret_hex else "")
                 channels.append({
                     "channel_idx": info.get("channel_idx", idx),
                     "channel_name": info.get("channel_name", ""),
-                    "channel_secret_hex": secret_hex,
+                    "channel_secret_hex": masked_secret,
                     "channel_hash": info.get("channel_hash", ""),
                 })
             else:

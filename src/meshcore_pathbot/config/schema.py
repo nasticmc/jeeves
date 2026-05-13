@@ -49,10 +49,6 @@ class BotConfig(BaseModel):
     weather_home_lat: float = -38.0291
     weather_home_lon: float = 145.2591
 
-    # Lightning alert settings
-    lightning_alert_enabled: bool = False
-    lightning_alert_channels: list[int] = Field(default_factory=list)
-    lightning_alert_interval_minutes: int = Field(default=15, ge=1)
 
     # Daily forecast settings
     daily_forecast_enabled: bool = False

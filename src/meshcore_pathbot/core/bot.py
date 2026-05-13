@@ -188,7 +188,6 @@ class PathBot:
         # channel_idx -> chan_hash mapping, populated from the radio at startup.
         self._chan_hash_by_idx: dict[int, str] = {}
         self._last_command_at_by_user: dict[tuple[int, str], float] = {}
-        self._lightning_task: asyncio.Task | None = None
         self._daily_forecast_task: asyncio.Task | None = None
         self._contact_purge_task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
@@ -229,12 +228,6 @@ class PathBot:
             f"Repeater DB: {self.db.stats_str()}"
         )
 
-        if self.config.bot.lightning_alert_enabled:
-            self._lightning_task = asyncio.create_task(
-                self._lightning_alert_loop(), name="lightning-alerts"
-            )
-            log.info("Lightning alert task started")
-
         if self.config.bot.daily_forecast_enabled:
             self._daily_forecast_task = asyncio.create_task(
                 self._daily_forecast_loop(), name="daily-forecast"
@@ -248,12 +241,11 @@ class PathBot:
 
     async def stop(self) -> None:
         """Gracefully disconnect from MeshCore."""
-        for task in (self._lightning_task, self._daily_forecast_task, self._contact_purge_task):
+        for task in (self._daily_forecast_task, self._contact_purge_task):
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
-        self._lightning_task = None
         self._daily_forecast_task = None
         self._contact_purge_task = None
 
@@ -554,53 +546,6 @@ class PathBot:
                 self.stats.messages_out += 1
             await asyncio.sleep(2)  # gap before next message can acquire the lock
         return True
-
-    async def _lightning_alert_loop(self) -> None:
-        """Poll Open-Meteo for thunderstorm activity near the bot and broadcast alerts."""
-        cfg = self.config.bot
-        bot_lat = cfg.lat
-        bot_lon = cfg.lon
-
-        if bot_lat == 0.0 and bot_lon == 0.0:
-            log.warning(
-                "Lightning alerts enabled but bot.lat/bot.lon not set — task disabled. "
-                "Set bot.lat and bot.lon in config."
-            )
-            return
-
-        interval = cfg.lightning_alert_interval_minutes * 60
-        storm_active = False
-        log.info(
-            f"Lightning alert loop: checking every {cfg.lightning_alert_interval_minutes} min "
-            f"at ({bot_lat}, {bot_lon})"
-        )
-
-        while True:
-            await asyncio.sleep(interval)
-
-            if not self._mc:
-                continue
-
-            is_storm = await weather_svc.check_lightning(bot_lat, bot_lon)
-
-            channels = cfg.lightning_alert_channels or [ch.id for ch in cfg.get_active_channels()]
-
-            if is_storm and not storm_active:
-                storm_active = True
-                msg = "Weather alert: Possible thunderstorms in the area (within 25 km of this node)."
-                log.info("Lightning alert triggered — sending to channels %s", channels)
-                for ch_id in channels:
-                    await self.send_channel_message(ch_id, msg)
-                    await self.message_store.add("out", "system", msg, time.time(), ch_id)
-                await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
-            elif not is_storm and storm_active:
-                storm_active = False
-                msg = "Lightning all-clear: Thunderstorm has passed."
-                log.info("Lightning all-clear — sending to channels %s", channels)
-                for ch_id in channels:
-                    await self.send_channel_message(ch_id, msg)
-                    await self.message_store.add("out", "system", msg, time.time(), ch_id)
-                await self.bus.publish(AppEvent.STATS_UPDATE, self.stats.to_dict())
 
     async def _daily_forecast_loop(self) -> None:
         """Send a daily 3-day forecast broadcast at the configured hour (local time)."""
