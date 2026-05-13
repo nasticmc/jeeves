@@ -1,6 +1,5 @@
-# meshcore-pathbot — v1.0.0
+# The mess we call Jeeves
 
-MeshCore path resolver bot with a web dashboard.
 
 Connects to a MeshCore companion radio, listens for `trace` and `ping` commands on a channel, resolves hex path prefixes to repeater names using a persistent database, and replies on the channel. Includes a full web dashboard for live monitoring, repeater management, path visualization, and configuration.
 
