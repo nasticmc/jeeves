@@ -10,7 +10,6 @@ Connects to a MeshCore companion radio, listens for `trace` and `ping` commands 
 - **Web dashboard** (port 8075) — live message feed, path visualizer, repeater management, overlap analysis, statistics, and full settings UI
 - **Guest dashboard** (port 8076, optional) — read-only view of ping history, paths, and repeater info
 - **Weather & forecasts** — per-channel `weather` and `forecast` commands via Open-Meteo
-- **Lightning alerts** — scheduled thunderstorm detection with automatic channel broadcasts
 - **Radio management** — read and update radio name, frequency, TX power, and channel keys directly from the web UI
 - **Systemd & Docker** — production-ready deployment with auto-restart
 
@@ -61,3 +60,15 @@ Mount your serial device by uncommenting the `devices` section in `docker-compos
 sudo cp meshcore-pathbot.service /etc/systemd/system/
 sudo systemctl enable --now meshcore-pathbot
 ```
+
+## Deployment readiness checklist
+
+- Use a dedicated `config.toml` per environment (do not commit live configs).
+- Run behind a trusted network boundary or reverse proxy; admin UI can modify radio settings.
+- Set `guest_web.enabled = true` only when you explicitly want read-only public visibility.
+- Rotate channel names/keys operationally on radios as part of commissioning.
+- Persist `repeaters.db` and your config volume when using Docker.
+
+## Security note
+
+The radio channels table intentionally shows **masked** channel secret values in the UI/API. Full channel secrets are not returned by the dashboard endpoint.
