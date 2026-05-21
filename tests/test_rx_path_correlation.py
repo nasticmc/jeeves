@@ -179,3 +179,64 @@ def test_legacy_single_slot_still_works_without_chan_hash_mapping() -> None:
     asyncio.run(bot._on_channel_msg(event))
 
     assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops)")]
+
+
+def test_direct_channel_msg_ping_does_not_report_255_hops() -> None:
+    """Regression: a direct-routed channel msg (plen=0xFF / path_hash_mode=-1)
+    must not be reported as a 255-hop flood. With the v1.15.0 default-scope
+    feature, scoped traffic often arrives via direct routing once paths are
+    known, exposing this sentinel value."""
+    bot, commands = _make_bot([2])
+    bot._chan_hash_by_idx = {2: "aa"}
+    # No RX_LOG_DATA correlation — direct messages aren't logged the same way
+    # as flood channel messages, so the bot has nothing in the rx queue.
+
+    event = SimpleNamespace(payload={
+        "text": "Alice: ping",
+        "channel_idx": 2,
+        "path_hash_mode": -1,
+        "path_len": 0xFF,
+    })
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] rxed direct")]
+
+
+def test_direct_channel_msg_trace_reports_direct_not_255() -> None:
+    bot, commands = _make_bot([2])
+    bot._chan_hash_by_idx = {2: "aa"}
+    bot.config.bot.channels[0].enabled_commands = ["trace"]
+
+    event = SimpleNamespace(payload={
+        "text": "Alice: trace",
+        "channel_idx": 2,
+        "path_hash_mode": -1,
+        "path_len": 0xFF,
+    })
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] rxed direct")]
+
+
+def test_direct_channel_msg_with_correlated_rx_log_uses_logged_path() -> None:
+    """If somehow an RX log entry IS correlated for a direct delivery, trust
+    the logged hop count rather than the channel-msg sentinel."""
+    bot, commands = _make_bot([2])
+    bot._chan_hash_by_idx = {2: "aa"}
+    asyncio.run(bot._on_rx_log_data(SimpleNamespace(payload={
+        "chan_hash": "aa",
+        "payload_type": _PAYLOAD_TYPE_CHANNEL_MSG,
+        "path_len": 2,
+        "path_hash_size": 1,
+        "path": "a1b2",
+    })))
+
+    event = SimpleNamespace(payload={
+        "text": "Alice: ping",
+        "channel_idx": 2,
+        "path_hash_mode": -1,
+        "path_len": 0xFF,
+    })
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] rxed a1:b2 (2 hops)")]
