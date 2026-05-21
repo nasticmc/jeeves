@@ -62,7 +62,7 @@ def test_rx_log_routed_to_correct_channel_by_chan_hash() -> None:
     event = SimpleNamespace(payload={"text": "Alice: ping", "channel_idx": 2})
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed")]
+    assert commands.sent == [(2, "@[Alice] rxed r=0")]
     # And channel 3's queue still holds its entry until consumed by ch3.
     assert len(bot._rx_path_by_chan_hash["bb"]) == 1
 
@@ -83,7 +83,7 @@ def test_rx_log_paired_with_matching_channel_msg() -> None:
     event = SimpleNamespace(payload={"text": "Alice: ping", "channel_idx": 2})
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops) r=0")]
 
 
 def test_non_channel_rx_log_does_not_displace_pending_path() -> None:
@@ -110,7 +110,7 @@ def test_non_channel_rx_log_does_not_displace_pending_path() -> None:
     event = SimpleNamespace(payload={"text": "Alice: ping", "channel_idx": 2})
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops) r=0")]
 
 
 def test_channel_msg_path_hash_mode_overrides_cached_size() -> None:
@@ -136,7 +136,7 @@ def test_channel_msg_path_hash_mode_overrides_cached_size() -> None:
 
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1b2:c3d4:e5f6 (3 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1b2:c3d4:e5f6 (3 hops) r=0")]
 
 
 def test_prefix_command_uses_channel_msg_hash_mode_not_stale_cache() -> None:
@@ -178,7 +178,7 @@ def test_legacy_single_slot_still_works_without_chan_hash_mapping() -> None:
 
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops) r=0")]
 
 
 def test_direct_channel_msg_ping_does_not_report_255_hops() -> None:
@@ -199,7 +199,7 @@ def test_direct_channel_msg_ping_does_not_report_255_hops() -> None:
     })
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed direct")]
+    assert commands.sent == [(2, "@[Alice] rxed direct r=0")]
 
 
 def test_direct_channel_msg_trace_reports_direct_not_255() -> None:
@@ -215,7 +215,7 @@ def test_direct_channel_msg_trace_reports_direct_not_255() -> None:
     })
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed direct")]
+    assert commands.sent == [(2, "@[Alice] rxed direct r=0")]
 
 
 def test_direct_msg_prefix_command_ignores_stale_multibyte_hash_size() -> None:
@@ -246,6 +246,48 @@ def test_direct_msg_prefix_command_ignores_stale_multibyte_hash_size() -> None:
     assert commands.sent == [(2, "@[Alice] ab=?, 1f=?, 7a=?")]
 
 
+def test_ping_reply_marks_region_scoped_packet_with_r1() -> None:
+    """A TRANSPORT_FLOOD (route_type=0x00) packet carries a transport_code,
+    i.e. it's scoped to a MeshCore region. The ping reply must report r=1."""
+    bot, commands = _make_bot([2])
+    bot._chan_hash_by_idx = {2: "aa"}
+    asyncio.run(bot._on_rx_log_data(SimpleNamespace(payload={
+        "chan_hash": "aa",
+        "payload_type": _PAYLOAD_TYPE_CHANNEL_MSG,
+        "route_type": 0x00,
+        "transport_code": "deadbeef",
+        "path_len": 1,
+        "path_hash_size": 1,
+        "path": "a1",
+    })))
+
+    event = SimpleNamespace(payload={"text": "Alice: ping", "channel_idx": 2})
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] rxed a1 (1 hops) r=1")]
+
+
+def test_trace_reply_marks_region_scoped_packet_with_r1() -> None:
+    bot, commands = _make_bot([2])
+    bot._chan_hash_by_idx = {2: "aa"}
+    bot.config.bot.channels[0].enabled_commands = ["trace"]
+    asyncio.run(bot._on_rx_log_data(SimpleNamespace(payload={
+        "chan_hash": "aa",
+        "payload_type": _PAYLOAD_TYPE_CHANNEL_MSG,
+        "route_type": 0x03,  # TRANSPORT_DIRECT — also scoped
+        "transport_code": "deadbeef",
+        "path_len": 1,
+        "path_hash_size": 1,
+        "path": "a1",
+    })))
+
+    event = SimpleNamespace(payload={"text": "Alice: trace", "channel_idx": 2})
+    asyncio.run(bot._on_channel_msg(event))
+
+    # No repeater in DummyDB matches "a1", so resolver returns "A1 (1 hops)".
+    assert commands.sent == [(2, "@[Alice] A1 (1 hops) r=1")]
+
+
 def test_direct_channel_msg_with_correlated_rx_log_uses_logged_path() -> None:
     """If somehow an RX log entry IS correlated for a direct delivery, trust
     the logged hop count rather than the channel-msg sentinel."""
@@ -267,4 +309,4 @@ def test_direct_channel_msg_with_correlated_rx_log_uses_logged_path() -> None:
     })
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1:b2 (2 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1:b2 (2 hops) r=0")]

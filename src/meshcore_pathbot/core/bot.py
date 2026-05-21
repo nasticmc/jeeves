@@ -758,6 +758,13 @@ class PathBot:
         else:
             path_len = rx.get("path_len", data.get("path_len", 0))
 
+        # route_type 0x00 (TRANSPORT_FLOOD) and 0x03 (TRANSPORT_DIRECT) carry a
+        # transport_code, i.e. the packet was scoped to a MeshCore region.
+        # Surfaced in ping/trace replies as r=1 (scoped) / r=0 (unscoped or
+        # unknown — no RX correlation, so route_type is missing).
+        route_type = rx.get("route_type")
+        msg_is_region_scoped = isinstance(route_type, int) and route_type in (0x00, 0x03)
+
         log.debug(
             f"Channel {channel_id} msg from {sender}: {text} "
             f"(path={raw_path}, full_path={full_path}, path_hash_size={path_hash_size}, path_len={path_len})"
@@ -935,6 +942,13 @@ class PathBot:
                 reply = f"@[{sender}] rxed direct"
             else:
                 reply = f"@[{sender}] rxed"
+
+        # Append the region-scope flag to ping/trace replies so users can see
+        # whether the inbound packet was MeshCore-region-scoped.
+        if cmd_name in ("ping", "trace"):
+            region_suffix = " r=1" if msg_is_region_scoped else " r=0"
+            if len(reply) + len(region_suffix) <= _MAX_MSG_LEN:
+                reply += region_suffix
 
         # For ping replies: inject promo URL on every Nth reply, or carry forward
         # if the reply is already too long to fit it.
