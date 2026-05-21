@@ -218,6 +218,34 @@ def test_direct_channel_msg_trace_reports_direct_not_255() -> None:
     assert commands.sent == [(2, "@[Alice] rxed direct")]
 
 
+def test_direct_msg_prefix_command_ignores_stale_multibyte_hash_size() -> None:
+    """Regression: a direct-delivery CHANNEL_MSG_RECV (path_hash_mode=-1)
+    must not inherit `path_hash_size` from a prior region-scoped RX_LOG_DATA
+    that's still sitting in the legacy single-slot cache. Otherwise a
+    `prefix ab1f7a` would be mis-parsed as one 3-byte token instead of three
+    1-byte tokens."""
+    config = AppConfig()
+    config.bot.channels = [
+        ChannelConfig(id=2, enabled_commands=["prefix"], rate_limit_enabled=False)
+    ]
+    bot = PathBot(config=config, db=DummyDB(), bus=EventBus(), message_store=DummyStore())
+    commands = DummyCommands()
+    bot._mc = SimpleNamespace(commands=commands)
+
+    # Stale large-hash entry from a prior region-scoped packet.
+    bot._latest_rx_path = {"path_hash_size": 3, "path_len": 1, "path": "ab"}
+
+    event = SimpleNamespace(payload={
+        "text": "Alice: prefix ab1f7a",
+        "channel_idx": 2,
+        "path_hash_mode": -1,
+        "path_len": 0xFF,
+    })
+    asyncio.run(bot._on_channel_msg(event))
+
+    assert commands.sent == [(2, "@[Alice] ab=?, 1f=?, 7a=?")]
+
+
 def test_direct_channel_msg_with_correlated_rx_log_uses_logged_path() -> None:
     """If somehow an RX log entry IS correlated for a direct delivery, trust
     the logged hop count rather than the channel-msg sentinel."""

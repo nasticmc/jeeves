@@ -742,6 +742,13 @@ class PathBot:
         ) or data.get("path_len") == 0xFF
         if isinstance(path_hash_mode, int) and path_hash_mode >= 0:
             path_hash_size = path_hash_mode + 1
+        elif msg_is_direct:
+            # Direct delivery carries no path of its own and no hash-mode
+            # signal. Don't inherit a cached size from a prior region-scoped
+            # packet — a stale 2/3/4-byte size would mis-split the user's
+            # `prefix` argument. Default to 1 and let users disambiguate
+            # multi-byte input with explicit separators (e.g. "fb1f:7ab2").
+            path_hash_size = 1
         else:
             path_hash_size = rx.get("path_hash_size", 1)
         if msg_is_direct:
