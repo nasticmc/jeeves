@@ -51,10 +51,15 @@ _CMD_PATTERNS: dict[str, re.Pattern[str]] = {
 def parse_rx_log_data(payload: Any) -> dict[str, Any]:
     """Parse RX_LOG event payload to extract path details.
 
-    The payload hex format is:
+    The on-air packet hex layout is:
       byte 0: header
-      byte 1: path byte
-        - top 2 bits: path hash size per hop (1..4 bytes)
+        - bits 0-1: route_type (0=TRANSPORT_FLOOD, 1=FLOOD, 2=DIRECT, 3=TRANSPORT_DIRECT)
+        - bits 2-5: payload_type
+        - bits 6-7: payload_ver
+      bytes 1..4 (only when route_type is 0 or 3): 4-byte transport_code
+        — present on region-scoped packets, absent on plain FLOOD/DIRECT.
+      next byte: path byte
+        - top 2 bits: path_hash_size - 1 (1..4 bytes per hop)
         - lower 6 bits: hop count
       next path_len * path_hash_size bytes: path hashes
 
@@ -70,6 +75,8 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
         raw_path = payload.get("path")
         chan_hash = payload.get("chan_hash")
         payload_type = payload.get("payload_type")
+        route_type = payload.get("route_type")
+        transport_code = payload.get("transport_code")
         if isinstance(path_len, int) and path_len >= 0:
             result["path_len"] = path_len
         if isinstance(path_hash_size, int) and path_hash_size > 0:
@@ -80,6 +87,10 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
             result["chan_hash"] = chan_hash.lower()
         if isinstance(payload_type, int):
             result["payload_type"] = payload_type
+        if isinstance(route_type, int):
+            result["route_type"] = route_type
+        if isinstance(transport_code, str) and transport_code:
+            result["transport_code"] = transport_code.lower()
 
         if "path_len" in result and "path_hash_size" in result and "full_path" in result:
             hop_len = result["path_hash_size"] * 2
@@ -113,7 +124,28 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
         return result
 
     try:
-        path_byte = int(hex_str[2:4], 16)
+        header = int(hex_str[0:2], 16)
+    except ValueError:
+        return result
+
+    route_type = header & 0x03
+    result["route_type"] = route_type
+    # Region-scoped packets (TRANSPORT_FLOOD / TRANSPORT_DIRECT) carry a
+    # 4-byte transport_code immediately after the header, pushing the
+    # path_byte from offset 1 to offset 5.
+    has_transport_code = route_type in (0x00, 0x03)
+    path_byte_offset = 1 + (4 if has_transport_code else 0)
+    if has_transport_code:
+        if len(hex_str) < (1 + 4) * 2:
+            return result
+        result["transport_code"] = hex_str[2 : 2 + 8]
+
+    path_byte_hex_start = path_byte_offset * 2
+    if len(hex_str) < path_byte_hex_start + 2:
+        return result
+
+    try:
+        path_byte = int(hex_str[path_byte_hex_start : path_byte_hex_start + 2], 16)
     except ValueError:
         return result
 
@@ -123,7 +155,7 @@ def parse_rx_log_data(payload: Any) -> dict[str, Any]:
     result["path_len"] = path_len
     result["path_hash_size"] = path_hash_size
 
-    path_start = 4
+    path_start = path_byte_hex_start + 2
     path_end = path_start + (path_len * path_hash_size * 2)
 
     if len(hex_str) < path_end:
@@ -700,12 +732,38 @@ class PathBot:
         # (top 2 bits of the path_len byte = path_hash_mode = path_hash_size-1).
         # Prefer that over any cached value: a stale cached size from a
         # different region/channel would corrupt prefix-command parsing.
+        # path_hash_mode == -1 / path_len == 0xFF is the meshcore sentinel for
+        # a direct-routed delivery (no flood traversal recorded), not a real
+        # 255-hop path. Keep that as a first-class flag so direct ping/trace
+        # replies don't claim "255 hops" when RX correlation didn't fire.
         path_hash_mode = data.get("path_hash_mode")
+        msg_is_direct = (
+            isinstance(path_hash_mode, int) and path_hash_mode < 0
+        ) or data.get("path_len") == 0xFF
         if isinstance(path_hash_mode, int) and path_hash_mode >= 0:
             path_hash_size = path_hash_mode + 1
+        elif msg_is_direct:
+            # Direct delivery carries no path of its own and no hash-mode
+            # signal. Don't inherit a cached size from a prior region-scoped
+            # packet — a stale 2/3/4-byte size would mis-split the user's
+            # `prefix` argument. Default to 1 and let users disambiguate
+            # multi-byte input with explicit separators (e.g. "fb1f:7ab2").
+            path_hash_size = 1
         else:
             path_hash_size = rx.get("path_hash_size", 1)
-        path_len = rx.get("path_len", data.get("path_len", 0))
+        if msg_is_direct:
+            # Direct delivery: ignore the sentinel byte from the channel msg,
+            # only trust an RX-log hop count if we managed to correlate one.
+            path_len = rx.get("path_len", 0)
+        else:
+            path_len = rx.get("path_len", data.get("path_len", 0))
+
+        # route_type 0x00 (TRANSPORT_FLOOD) and 0x03 (TRANSPORT_DIRECT) carry a
+        # transport_code, i.e. the packet was scoped to a MeshCore region.
+        # Surfaced in ping/trace replies as r=1 (scoped) / r=0 (unscoped or
+        # unknown — no RX correlation, so route_type is missing).
+        route_type = rx.get("route_type")
+        msg_is_region_scoped = isinstance(route_type, int) and route_type in (0x00, 0x03)
 
         log.debug(
             f"Channel {channel_id} msg from {sender}: {text} "
@@ -851,6 +909,8 @@ class PathBot:
                 reply = f"@[{sender}] {resolved}"
             elif path_len > 0:
                 reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
+            elif msg_is_direct:
+                reply = f"@[{sender}] rxed direct"
             else:
                 reply = f"@[{sender}] rxed (no path data)"
         # Handle help command — list enabled commands for this channel
@@ -878,8 +938,17 @@ class PathBot:
                     reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
             elif path_len > 0:
                 reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
+            elif msg_is_direct:
+                reply = f"@[{sender}] rxed direct"
             else:
                 reply = f"@[{sender}] rxed"
+
+        # Append the region-scope flag to ping/trace replies so users can see
+        # whether the inbound packet was MeshCore-region-scoped.
+        if cmd_name in ("ping", "trace"):
+            region_suffix = " r=1" if msg_is_region_scoped else " r=0"
+            if len(reply) + len(region_suffix) <= _MAX_MSG_LEN:
+                reply += region_suffix
 
         # For ping replies: inject promo URL on every Nth reply, or carry forward
         # if the reply is already too long to fit it.

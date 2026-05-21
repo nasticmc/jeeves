@@ -100,7 +100,7 @@ def test_ping_reply_reinstates_path_details_when_available() -> None:
 
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1:b2:c3 (3 hops) r=0")]
 
 
 def test_ping_reply_includes_full_multibyte_raw_path_when_available() -> None:
@@ -127,4 +127,4 @@ def test_ping_reply_includes_full_multibyte_raw_path_when_available() -> None:
 
     asyncio.run(bot._on_channel_msg(event))
 
-    assert commands.sent == [(2, "@[Alice] rxed a1b2:c3d4:e5f6 (3 hops)")]
+    assert commands.sent == [(2, "@[Alice] rxed a1b2:c3d4:e5f6 (3 hops) r=0")]
