@@ -14,6 +14,10 @@
 - Shared path rendering partials are under `src/meshcore_pathbot/web/templates/partials/`; prefer enhancing shared partials instead of duplicating logic.
 - Prefer lightweight, framework-free JavaScript in templates/static files.
 
+## Path handling
+- MeshCore paths may use 1-byte or multibyte hop hashes; preserve full multibyte hop segments where available instead of truncating to first-byte compatibility prefixes.
+- When formatting stored or displayed paths, use hash-size-aware helpers/shared resolver logic so admin pages, guest pages, `trace`, `ping`, `paths`, and `multipath` stay consistent.
+
 ## Data retention
 - Repeater cleanup is daily and uses a 7-day retention window.
 - If touching cleanup logic, keep retention-related UI copy and backend behavior aligned.

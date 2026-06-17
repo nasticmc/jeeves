@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -170,3 +169,55 @@ async def test_multipath_command_with_no_prior_message(tmp_path: Path) -> None:
     await bot._on_channel_msg(event)
 
     assert commands.sent == [(2, "@[Alice] no recent message to trace")]
+
+
+@pytest.mark.asyncio
+async def test_paths_command_preserves_multibyte_recorded_path(tmp_path: Path) -> None:
+    store = MessageStore(tmp_path / "messages.db")
+    await store.load()
+
+    bot, commands = _make_bot(store, [
+        ChannelConfig(id=2, enabled_commands=["paths"], rate_limit_enabled=False),
+    ])
+    bot._latest_rx_path = {
+        "path": "a1c3",
+        "full_path": "a1b2c3d4",
+        "path_hash_size": 2,
+        "path_len": 2,
+    }
+
+    event = SimpleNamespace(
+        payload={
+            "text": "Alice: paths",
+            "channel_idx": 2,
+            "path_hash_mode": 1,
+            "path_len": 2,
+        }
+    )
+    await bot._on_channel_msg(event)
+
+    assert store.get_paths_for_peer("Alice") == ["a1b2:c3d4"]
+    assert commands.sent == [(2, "@[Alice] 1 paths: a1b2:c3d4 (2)")]
+
+
+@pytest.mark.asyncio
+async def test_multipath_reply_formats_multibyte_stored_paths(tmp_path: Path) -> None:
+    store = MessageStore(tmp_path / "messages.db")
+    await store.load()
+
+    bot, commands = _make_bot(store, [
+        ChannelConfig(id=2, enabled_commands=["multipath"], rate_limit_enabled=False),
+    ])
+    await store.add(
+        "in", "Alice", "Alice: hello", timestamp=100.0, channel=2, path="a1b2:c3d4"
+    )
+    await store.add(
+        "in", "Alice", "Alice: hello", timestamp=101.0, channel=2, path="e5f6:1234"
+    )
+
+    event = SimpleNamespace(payload={"text": "Alice: multipath", "channel_idx": 2})
+    await bot._on_channel_msg(event)
+
+    assert len(commands.sent) == 1
+    assert "a1b2:c3d4 (2)" in commands.sent[0][1]
+    assert "e5f6:1234 (2)" in commands.sent[0][1]

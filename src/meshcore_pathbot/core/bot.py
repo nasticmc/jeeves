@@ -297,20 +297,27 @@ class PathBot:
         debug = self.config.logging.level == "DEBUG"
 
         log.info(f"Connecting via {conn.type}...")
+        reconnect_kwargs = {
+            "debug": debug,
+            "auto_reconnect": conn.auto_reconnect,
+            "max_reconnect_attempts": conn.max_reconnect_attempts,
+        }
 
         if conn.type == "serial":
             if not conn.serial_port:
                 raise ValueError("Serial port not configured")
-            return await MeshCore.create_serial(conn.serial_port, conn.serial_baud, debug=debug)
+            return await MeshCore.create_serial(
+                conn.serial_port, conn.serial_baud, **reconnect_kwargs
+            )
         elif conn.type == "tcp":
             if not conn.tcp_host:
                 raise ValueError("TCP host not configured")
-            return await MeshCore.create_tcp(conn.tcp_host, conn.tcp_port, debug=debug)
+            return await MeshCore.create_tcp(conn.tcp_host, conn.tcp_port, **reconnect_kwargs)
         elif conn.type == "ble":
             if conn.ble_address:
-                return await MeshCore.create_ble(conn.ble_address, debug=debug)
+                return await MeshCore.create_ble(conn.ble_address, **reconnect_kwargs)
             else:
-                return await MeshCore.create_ble(debug=debug)
+                return await MeshCore.create_ble(**reconnect_kwargs)
         else:
             raise ValueError(f"Unknown connection type: {conn.type}")
 
@@ -495,6 +502,25 @@ class PathBot:
             text = text[split_at:].lstrip(" ")
         return chunks
 
+    @classmethod
+    def _format_stored_path(cls, raw_path: str, hash_size: int) -> str:
+        """Format the complete path as stored history, preserving multibyte hops."""
+        if not raw_path or hash_size <= 0:
+            return ""
+        if hash_size == 1:
+            return raw_path.lower()
+        return cls._format_hop_path(raw_path.lower(), hash_size)
+
+    @staticmethod
+    def _format_recorded_path(raw_path: str) -> str:
+        """Format a stored history path for path-list replies."""
+        if not raw_path:
+            return "direct"
+        formatted = PathResolver.raw(raw_path)
+        if not formatted:
+            return "direct"
+        return formatted.replace(" hops)", ")")
+
     def _build_paths_reply(self, sender: str) -> str:
         """Build reply for the 'paths' command — unique paths seen from this sender."""
         raw_paths = self.message_store.get_paths_for_peer(sender)
@@ -502,14 +528,7 @@ class PathBot:
         if not raw_paths:
             return f"@[{sender}] no paths recorded"
 
-        formatted = []
-        for rp in raw_paths:
-            if not rp or len(rp) < 2 or len(rp) % 2 != 0:
-                formatted.append("direct")
-            else:
-                hop_count = len(rp) // 2
-                split = ":".join(rp[i:i + 2] for i in range(0, len(rp), 2))
-                formatted.append(f"{split} ({hop_count})")
+        formatted = [self._format_recorded_path(rp) for rp in raw_paths]
 
         # Deduplicate (empty paths all become "direct")
         seen: list[str] = []
@@ -538,14 +557,7 @@ class PathBot:
         if not raw_paths:
             return f"@[{sender}] no paths recorded for last msg"
 
-        formatted: list[str] = []
-        for rp in raw_paths:
-            if not rp or len(rp) < 2 or len(rp) % 2 != 0:
-                formatted.append("direct")
-            else:
-                hop_count = len(rp) // 2
-                split = ":".join(rp[i:i + 2] for i in range(0, len(rp), 2))
-                formatted.append(f"{split} ({hop_count})")
+        formatted = [self._format_recorded_path(rp) for rp in raw_paths]
 
         # Preserve order, dedupe identical formatted paths.
         seen: list[str] = []
@@ -774,8 +786,9 @@ class PathBot:
         self.stats.last_message_at = time.time()
         ts = time.time()
 
+        stored_path = self._format_stored_path(full_path, path_hash_size) or raw_path
         await self.message_store.add(
-            "in", sender, text, ts, channel_id, path=raw_path,
+            "in", sender, text, ts, channel_id, path=stored_path,
         )
         await self.bus.publish(
             AppEvent.MSG_IN,
@@ -901,11 +914,13 @@ class PathBot:
         elif is_trace:
             log.info(f"Trace from {sender} on ch{channel_id}")
             if raw_path and len(raw_path) >= 2 and len(raw_path) % 2 == 0:
-                resolved = self.resolver.resolve(raw_path)
-                if path_hash_size > 1:
-                    raw_display = self._format_hop_path(full_path, path_hash_size)
-                    if raw_display:
-                        resolved = f"{resolved}; raw {raw_display}"
+                raw_display = self._format_hop_path(full_path, path_hash_size)
+                path_to_resolve = (
+                    raw_display if path_hash_size > 1 and raw_display else raw_path
+                )
+                resolved = self.resolver.resolve(path_to_resolve)
+                if path_hash_size > 1 and raw_display:
+                    resolved = f"{resolved}; raw {raw_display}"
                 reply = f"@[{sender}] {resolved}"
             elif path_len > 0:
                 reply = f"@[{sender}] rxed ({path_len} hops, no path detail)"
