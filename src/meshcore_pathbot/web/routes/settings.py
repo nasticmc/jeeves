@@ -14,7 +14,16 @@ from ..dependencies import get_bus, get_config
 
 router = APIRouter()
 
-ALL_COMMANDS = ["trace", "ping", "paths", "prefix", "weather", "forecast", "help"]
+ALL_COMMANDS = [
+    "trace",
+    "ping",
+    "paths",
+    "multipath",
+    "prefix",
+    "weather",
+    "forecast",
+    "help",
+]
 
 
 @router.get("/settings")
