@@ -16,6 +16,7 @@ async def paths_page(request: Request, store=Depends(get_message_store)):
     templates = request.app.state.templates
     peers = store.get_unique_peers()
     return templates.TemplateResponse(
+        request,
         "paths.html",
         {"request": request, "hops": None, "raw_path": "", "peers": peers},
     )
@@ -43,6 +44,7 @@ async def resolve_path(
     raw_str = bot.resolver.raw(raw_path) if raw_path else ""
 
     return templates.TemplateResponse(
+        request,
         "partials/path_display.html",
         {
             "request": request,
@@ -85,6 +87,7 @@ async def search_user_paths(
             )
 
     return templates.TemplateResponse(
+        request,
         "partials/user_paths.html",
         {
             "request": request,

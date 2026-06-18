@@ -21,6 +21,7 @@ async def repeaters_page(
     cleanup_every_seconds = 24 * 60 * 60
     seconds_until_cleanup = cleanup_every_seconds - (now % cleanup_every_seconds)
     return templates.TemplateResponse(
+        request,
         "repeaters.html",
         {
             "request": request,

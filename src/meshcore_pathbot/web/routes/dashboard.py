@@ -18,6 +18,7 @@ async def dashboard(
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
             "request": request,

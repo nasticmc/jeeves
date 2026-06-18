@@ -16,6 +16,7 @@ async def packets_page(
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "packets.html",
         {
             "request": request,

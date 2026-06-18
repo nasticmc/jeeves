@@ -22,6 +22,7 @@ async def overlaps_page(
     total_affected = sum(len(g["repeaters"]) for g in collisions)
     filtered_total_affected = sum(len(g["repeaters"]) for g in filtered_collisions)
     return templates.TemplateResponse(
+        request,
         "overlaps.html",
         {
             "request": request,

@@ -17,6 +17,7 @@ async def stats_page(
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "stats.html",
         {
             "request": request,

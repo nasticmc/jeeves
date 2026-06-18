@@ -33,6 +33,7 @@ async def settings_page(
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "settings.html",
         {
             "request": request,
@@ -148,6 +149,7 @@ async def save_settings(
             save_config(config, config.config_path)
         except Exception as e:
             return templates.TemplateResponse(
+                request,
                 "partials/toast.html",
                 {"request": request, "message": f"Error saving: {e}", "type": "error"},
             )
@@ -155,6 +157,7 @@ async def save_settings(
     await bus.publish(AppEvent.CONFIG_UPDATE, {"saved": True})
 
     return templates.TemplateResponse(
+        request,
         "partials/toast.html",
         {"request": request, "message": "Settings saved (restart required for channel changes)", "type": "success"},
     )
