@@ -17,6 +17,7 @@ async def messages_page(
 ):
     templates = request.app.state.templates
     return templates.TemplateResponse(
+        request,
         "messages.html",
         {
             "request": request,

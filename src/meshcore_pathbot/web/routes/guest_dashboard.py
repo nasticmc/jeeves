@@ -25,6 +25,7 @@ async def guest_dashboard(
     selected_channels = configured_channels or ping_enabled_channel_ids
 
     return templates.TemplateResponse(
+        request,
         "dashboard.html",
         {
             "request": request,
