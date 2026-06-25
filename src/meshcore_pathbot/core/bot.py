@@ -25,9 +25,7 @@ from . import weather as weather_svc
 
 log = logging.getLogger("pathbot.bot")
 
-_PROMO_URL = "https://j.eastmesh.au"
 _MAX_MSG_LEN = 130
-_PING_URL_INTERVAL = 7  # append URL on every Nth ping reply
 
 # How long an RX_LOG_DATA entry stays valid waiting for its CHANNEL_MSG_RECV pair.
 # After this, the entry is dropped — the channel message is treated as having no
@@ -223,8 +221,6 @@ class PathBot:
         self._daily_forecast_task: asyncio.Task | None = None
         self._contact_purge_task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
-        self._ping_reply_count: int = 0
-        self._pending_url: bool = False
 
     @property
     def is_connected(self) -> bool:
@@ -772,7 +768,7 @@ class PathBot:
 
         # route_type 0x00 (TRANSPORT_FLOOD) and 0x03 (TRANSPORT_DIRECT) carry a
         # transport_code, i.e. the packet was scoped to a MeshCore region.
-        # Surfaced in ping/trace replies as r=1 (scoped) / r=0 (unscoped or
+        # Surfaced in trace replies as r=1 (scoped) / r=0 (unscoped or
         # unknown — no RX correlation, so route_type is missing).
         route_type = rx.get("route_type")
         msg_is_region_scoped = isinstance(route_type, int) and route_type in (0x00, 0x03)
@@ -958,25 +954,15 @@ class PathBot:
             else:
                 reply = f"@[{sender}] rxed"
 
-        # Append the region-scope flag to ping/trace replies so users can see
-        # whether the inbound packet was MeshCore-region-scoped.
-        if cmd_name in ("ping", "trace"):
+        # Append the region-scope flag to trace replies so users can see
+        # whether the inbound packet was MeshCore-region-scoped. Ping still
+        # computes msg_is_region_scoped above but no longer surfaces r=...
+        # in the response.
+        if cmd_name == "trace":
             region_suffix = " r=1" if msg_is_region_scoped else " r=0"
             if len(reply) + len(region_suffix) <= _MAX_MSG_LEN:
                 reply += region_suffix
 
-        # For ping replies: inject promo URL on every Nth reply, or carry forward
-        # if the reply is already too long to fit it.
-        if cmd_name == "ping":
-            self._ping_reply_count += 1
-            wants_url = (self._ping_reply_count % _PING_URL_INTERVAL == 0) or self._pending_url
-            self._pending_url = False
-            if wants_url:
-                url_suffix = " " + _PROMO_URL
-                if len(reply) + len(url_suffix) <= _MAX_MSG_LEN:
-                    reply += url_suffix
-                else:
-                    self._pending_url = True  # carry to next ping reply
 
         log.info(f"Replying on ch{channel_id}: {reply}")
         ok = await self.send_channel_message(channel_id, reply)
