@@ -191,6 +191,10 @@
                 Home Suburb Name
                 <input type="text" name="weather_home_name" value="{{ config.bot.weather_home_name }}" placeholder="e.g. Hampton Park">
             </label>
+            <label>
+                Home Postcode
+                <input type="text" name="weather_home_postcode" value="{{ config.bot.weather_home_postcode }}" placeholder="e.g. 3976">
+            </label>
         </div>
         <div class="grid">
             <label>
@@ -202,6 +206,11 @@
                 <input type="number" name="weather_home_lon" value="{{ config.bot.weather_home_lon }}" step="any" placeholder="e.g. 145.2591">
             </label>
         </div>
+        <label>
+            OpenWeatherMap API Key
+            <input type="password" name="openweathermap_api_key" value="" placeholder="Leave blank to keep current key">
+        </label>
+        <small>The saved API key is not displayed here. Enter a new key only when you want to replace it.</small><br>
         <small>Enable the <strong>weather</strong> and <strong>forecast</strong> commands per channel in the Channel Management table below.</small>
     </fieldset>
 

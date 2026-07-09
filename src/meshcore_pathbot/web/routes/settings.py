@@ -65,6 +65,8 @@ async def save_settings(
     weather_home_name: str = Form("Hampton Park"),
     weather_home_lat: float = Form(-38.0291),
     weather_home_lon: float = Form(145.2591),
+    weather_home_postcode: str = Form("3976"),
+    openweathermap_api_key: str = Form(""),
     daily_forecast_enabled: str = Form(""),
     daily_forecast_channels: list[int] | None = Form(default=None),
     daily_forecast_hour: int = Form(6),
@@ -98,6 +100,10 @@ async def save_settings(
     config.bot.weather_home_name = weather_home_name.strip()
     config.bot.weather_home_lat = weather_home_lat
     config.bot.weather_home_lon = weather_home_lon
+    config.bot.weather_home_postcode = weather_home_postcode.strip()
+    new_openweathermap_api_key = openweathermap_api_key.strip()
+    if new_openweathermap_api_key:
+        config.bot.openweathermap_api_key = new_openweathermap_api_key
     config.bot.daily_forecast_channels = sorted(set(daily_forecast_channels or []))
     config.bot.daily_forecast_enabled = (daily_forecast_enabled == "true") and bool(config.bot.daily_forecast_channels)
     config.bot.daily_forecast_hour = max(0, min(23, daily_forecast_hour))

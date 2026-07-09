@@ -628,6 +628,7 @@ class PathBot:
                     cfg.weather_home_lat,
                     cfg.weather_home_lon,
                     cfg.weather_home_name,
+                    cfg.openweathermap_api_key,
                 )
             except Exception as exc:
                 log.warning("Daily forecast fetch failed: %s", exc)
@@ -851,40 +852,30 @@ class PathBot:
 
         self.stats.commands_processed += 1
 
-        # Handle weather command — current conditions for home suburb or given postcode
+        # Handle weather command — current conditions for home postcode or given AU postcode
         if is_weather:
             log.info(f"Weather from {sender} on ch{channel_id}")
-            postcode = msg_body[len("weather"):].strip() or "3976"
+            cfg = self.config.bot
+            postcode = msg_body[len("weather"):].strip() or cfg.weather_home_postcode
             try:
-                coords = await weather_svc.get_coords_for_postcode(postcode)
-                if coords is None:
-                    reply = f"@[{sender}] Could not find postcode {postcode}"
-                else:
-                    lat, lon, name = coords
-                    reply = await weather_svc.current_weather_reply(sender, lat, lon, name)
+                reply = await weather_svc.current_weather_reply_for_postcode(
+                    sender, postcode, cfg.openweathermap_api_key
+                )
             except Exception as exc:
                 log.warning(f"Weather fetch failed: {exc}")
-                reply = f"@[{sender}] Weather unavailable, try again later"
-        # Handle forecast command — 3-day outlook for home suburb or given postcode
+                reply = f"@[{sender}] Weather unavailable for postcode {postcode}, try again later"
+        # Handle forecast command — 3-day outlook for home postcode or given AU postcode
         elif is_forecast:
             log.info(f"Forecast from {sender} on ch{channel_id}")
-            postcode = msg_body[len("forecast"):].strip() or None
+            cfg = self.config.bot
+            postcode = msg_body[len("forecast"):].strip() or cfg.weather_home_postcode
             try:
-                if postcode:
-                    coords = await weather_svc.get_coords_for_postcode(postcode)
-                    if coords is None:
-                        reply = f"@[{sender}] Could not find postcode {postcode}"
-                    else:
-                        lat, lon, name = coords
-                        reply = await weather_svc.forecast_reply(sender, lat, lon, name)
-                else:
-                    cfg = self.config.bot
-                    reply = await weather_svc.forecast_reply(
-                        sender, cfg.weather_home_lat, cfg.weather_home_lon, cfg.weather_home_name
-                    )
+                reply = await weather_svc.forecast_reply_for_postcode(
+                    sender, postcode, cfg.openweathermap_api_key
+                )
             except Exception as exc:
                 log.warning(f"Forecast fetch failed: {exc}")
-                reply = f"@[{sender}] Forecast unavailable, try again later"
+                reply = f"@[{sender}] Forecast unavailable for postcode {postcode}, try again later"
         # Handle prefix command — look up repeater names from hex prefixes
         elif is_prefix:
             log.info(f"Prefix lookup from {sender} on ch{channel_id}")

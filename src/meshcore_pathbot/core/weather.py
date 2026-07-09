@@ -1,4 +1,4 @@
-"""Weather service: fetch current conditions and forecasts via Open-Meteo and Nominatim."""
+"""Weather service: fetch current conditions and forecasts via OpenWeatherMap."""
 
 from __future__ import annotations
 
@@ -7,67 +7,42 @@ import json
 import logging
 import urllib.parse
 import urllib.request
+from collections import OrderedDict
 from datetime import datetime
 from numbers import Real
 
 log = logging.getLogger("pathbot.weather")
 
-# WMO weather interpretation codes → human-readable description
-WMO_DESCRIPTIONS: dict[int, str] = {
-    0: "Clear sky",
-    1: "Mainly clear",
-    2: "Partly cloudy",
-    3: "Overcast",
-    45: "Fog",
-    48: "Icy fog",
-    51: "Light drizzle",
-    53: "Drizzle",
-    55: "Heavy drizzle",
-    61: "Light rain",
-    63: "Rain",
-    65: "Heavy rain",
-    71: "Light snow",
-    73: "Snow",
-    75: "Heavy snow",
-    77: "Snow grains",
-    80: "Light showers",
-    81: "Showers",
-    82: "Heavy showers",
-    85: "Snow showers",
-    86: "Heavy snow showers",
-    95: "Thunderstorm",
-    96: "Thunderstorm with hail",
-    99: "Thunderstorm with heavy hail",
-}
-
-_OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast"
-_NOMINATIM_BASE = "https://nominatim.openstreetmap.org/search"
-_NOMINATIM_HEADERS = {"User-Agent": "MeshCore-PathBot/1.0 (weather command)"}
+_OPENWEATHER_BASE = "https://api.openweathermap.org/data/2.5"
+_GEO_BASE = "https://api.openweathermap.org/geo/1.0"
 
 
-def _wmo_desc(code: int) -> str:
-    """Return a human-readable description for a WMO weather code."""
-    return WMO_DESCRIPTIONS.get(code, f"Code {code}")
+def _api_key_param(api_key: str) -> str:
+    """Return a URL-encoded OpenWeatherMap API key parameter or raise if missing."""
+    key = api_key.strip()
+    if not key:
+        raise ValueError("OpenWeatherMap API key is not configured")
+    return urllib.parse.urlencode({"appid": key})
 
 
-def _safe_desc(codes: list, idx: int) -> str:
-    """Return a best-effort weather description for forecast row *idx*."""
-    if idx >= len(codes):
-        return "?"
-    try:
-        return _wmo_desc(int(codes[idx]))
-    except (TypeError, ValueError):
-        return "?"
+def _postcode_param(postcode: str) -> str:
+    """Return an OpenWeatherMap AU postcode query value."""
+    return urllib.parse.quote(f"{postcode.strip()},AU")
 
 
-def _safe_temp(values: list, idx: int) -> str:
-    """Return a rounded integer-like temperature string for forecast row *idx*."""
-    if idx >= len(values):
-        return "?"
-    value = values[idx]
+def _format_desc(weather: list | None) -> str:
+    """Return a compact human-readable OpenWeatherMap description."""
+    if not weather:
+        return "Weather"
+    desc = weather[0].get("description") if isinstance(weather[0], dict) else None
+    return str(desc or "Weather").capitalize()
+
+
+def _format_temp(value: object) -> str:
+    """Return a rounded integer-like temperature string."""
     if isinstance(value, Real):
         return f"{float(value):.0f}"
-    return str(value)
+    return "?" if value is None else str(value)
 
 
 async def _fetch_json(url: str, headers: dict[str, str] | None = None) -> dict | list:
@@ -81,133 +56,160 @@ async def _fetch_json(url: str, headers: dict[str, str] | None = None) -> dict |
     return await loop.run_in_executor(None, _do_fetch)
 
 
-async def get_coords_for_postcode(postcode: str) -> tuple[float, float, str] | None:
+async def get_coords_for_postcode(postcode: str, api_key: str = "") -> tuple[float, float, str] | None:
     """Return (lat, lon, place_name) for an Australian postcode, or None on failure."""
-    url = (
-        f"{_NOMINATIM_BASE}"
-        f"?postalcode={urllib.parse.quote(postcode)}"
-        f"&countrycodes=au&format=json&limit=1&addressdetails=1"
-    )
+    url = f"{_GEO_BASE}/zip?zip={_postcode_param(postcode)}&{_api_key_param(api_key)}"
     try:
-        data = await _fetch_json(url, headers=_NOMINATIM_HEADERS)
-        if not isinstance(data, list) or not data:
+        data = await _fetch_json(url)
+        if not isinstance(data, dict) or "lat" not in data or "lon" not in data:
             return None
-        hit = data[0]
-        lat = float(hit["lat"])
-        lon = float(hit["lon"])
-        # Build a short display name: suburb/town, state
-        addr = hit.get("address", {})
-        suburb = (
-            addr.get("suburb")
-            or addr.get("town")
-            or addr.get("city")
-            or addr.get("county")
-            or hit.get("display_name", postcode).split(",")[0]
-        )
-        state = addr.get("state_code") or addr.get("state", "")
-        name = f"{suburb}, {state}".strip(", ") if state else suburb
+        lat = float(data["lat"])
+        lon = float(data["lon"])
+        name = str(data.get("name") or postcode)
         return lat, lon, name
     except Exception as exc:
-        log.warning("Nominatim lookup failed for postcode %s: %s", postcode, exc)
+        log.warning("OpenWeatherMap postcode lookup failed for %s: %s", postcode, exc)
         return None
 
 
-async def get_current_weather(lat: float, lon: float) -> dict:
-    """Return raw Open-Meteo current-weather dict for the given coordinates."""
+async def get_current_weather_for_postcode(postcode: str, api_key: str) -> dict:
+    """Return raw OpenWeatherMap current weather for an Australian postcode."""
     url = (
-        f"{_OPEN_METEO_BASE}"
-        f"?latitude={lat}&longitude={lon}"
-        f"&current=temperature_2m,weather_code,wind_speed_10m"
-        f"&timezone=auto"
+        f"{_OPENWEATHER_BASE}/weather?zip={_postcode_param(postcode)}"
+        f"&units=metric&{_api_key_param(api_key)}"
     )
     data = await _fetch_json(url)
     if not isinstance(data, dict):
-        raise ValueError("Unexpected response from Open-Meteo")
+        raise ValueError("Unexpected response from OpenWeatherMap")
     return data
 
 
-async def get_forecast(lat: float, lon: float) -> dict:
-    """Return raw Open-Meteo 3-day forecast dict for the given coordinates."""
+async def get_forecast_for_postcode(postcode: str, api_key: str) -> dict:
+    """Return raw OpenWeatherMap 5 day / 3 hour forecast for an Australian postcode."""
     url = (
-        f"{_OPEN_METEO_BASE}"
-        f"?latitude={lat}&longitude={lon}"
-        f"&daily=weather_code,temperature_2m_max,temperature_2m_min"
-        f"&forecast_days=3"
-        f"&timezone=auto"
+        f"{_OPENWEATHER_BASE}/forecast?zip={_postcode_param(postcode)}"
+        f"&units=metric&{_api_key_param(api_key)}"
     )
     data = await _fetch_json(url)
     if not isinstance(data, dict):
-        raise ValueError("Unexpected response from Open-Meteo")
+        raise ValueError("Unexpected response from OpenWeatherMap")
     return data
 
 
-async def current_weather_reply(sender: str, lat: float, lon: float, location_name: str) -> str:
+async def get_current_weather(lat: float, lon: float, api_key: str = "") -> dict:
+    """Return raw OpenWeatherMap current weather for coordinates."""
+    url = (
+        f"{_OPENWEATHER_BASE}/weather?lat={lat}&lon={lon}"
+        f"&units=metric&{_api_key_param(api_key)}"
+    )
+    data = await _fetch_json(url)
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected response from OpenWeatherMap")
+    return data
+
+
+async def get_forecast(lat: float, lon: float, api_key: str = "") -> dict:
+    """Return raw OpenWeatherMap forecast for coordinates."""
+    url = (
+        f"{_OPENWEATHER_BASE}/forecast?lat={lat}&lon={lon}"
+        f"&units=metric&{_api_key_param(api_key)}"
+    )
+    data = await _fetch_json(url)
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected response from OpenWeatherMap")
+    return data
+
+
+async def current_weather_reply(sender: str, lat: float, lon: float, location_name: str, api_key: str = "") -> str:
     """Fetch current weather and return a formatted bot reply string."""
-    data = await get_current_weather(lat, lon)
-    current = data.get("current", {})
-    temp = current.get("temperature_2m")
-    code = current.get("weather_code")
-    wind = current.get("wind_speed_10m")
+    return _format_current_reply(sender, await get_current_weather(lat, lon, api_key), location_name)
 
-    if temp is None or code is None:
+
+async def current_weather_reply_for_postcode(sender: str, postcode: str, api_key: str) -> str:
+    """Fetch current weather for an Australian postcode and return a bot reply."""
+    data = await get_current_weather_for_postcode(postcode, api_key)
+    location_name = str(data.get("name") or postcode)
+    return _format_current_reply(sender, data, location_name)
+
+
+def _format_current_reply(sender: str, data: dict, location_name: str) -> str:
+    main = data.get("main", {})
+    temp = main.get("temp")
+    desc = _format_desc(data.get("weather"))
+    wind_speed = data.get("wind", {}).get("speed")
+
+    if temp is None:
         return f"@[{sender}] Weather data unavailable for {location_name}"
 
-    desc = _wmo_desc(int(code))
-    parts = [f"{location_name}: {temp:.0f}°C, {desc}"]
-    if wind is not None:
-        parts.append(f"wind {wind:.0f} km/h")
+    parts = [f"{location_name}: {_format_temp(temp)}°C, {desc}"]
+    if wind_speed is not None:
+        parts.append(f"wind {_format_temp(float(wind_speed) * 3.6)} km/h")
     return f"@[{sender}] {', '.join(parts)}"
 
 
-async def forecast_reply(sender: str, lat: float, lon: float, location_name: str) -> str:
-    """Fetch 3-day forecast and return a formatted bot reply string."""
-    data = await get_forecast(lat, lon)
-    daily = data.get("daily", {})
-    times = daily.get("time", [])
-    codes = daily.get("weather_code", [])
-    maxes = daily.get("temperature_2m_max", [])
-    mins = daily.get("temperature_2m_min", [])
+async def forecast_reply(sender: str, lat: float, lon: float, location_name: str, api_key: str = "") -> str:
+    """Fetch a 3-day forecast and return a formatted bot reply string."""
+    return _format_forecast_reply(sender, await get_forecast(lat, lon, api_key), location_name)
 
-    if not times:
-        return f"@[{sender}] Forecast unavailable for {location_name}"
 
-    day_parts = []
-    for i in range(min(3, len(times))):
+async def forecast_reply_for_postcode(sender: str, postcode: str, api_key: str) -> str:
+    """Fetch a 3-day forecast for an Australian postcode and return a bot reply."""
+    data = await get_forecast_for_postcode(postcode, api_key)
+    location_name = str(data.get("city", {}).get("name") or postcode)
+    return _format_forecast_reply(sender, data, location_name)
+
+
+def _daily_forecast_parts(data: dict) -> list[str]:
+    grouped: OrderedDict[str, dict[str, object]] = OrderedDict()
+    for item in data.get("list", []):
+        if not isinstance(item, dict):
+            continue
+        dt_txt = str(item.get("dt_txt") or "")
+        if not dt_txt:
+            continue
+        date_key = dt_txt.split(" ", 1)[0]
+        entry = grouped.setdefault(date_key, {"mins": [], "maxes": [], "desc": None, "midday_delta": 99})
+        main = item.get("main", {})
+        if isinstance(main, dict):
+            if isinstance(main.get("temp_min"), Real):
+                entry["mins"].append(float(main["temp_min"]))  # type: ignore[union-attr]
+            if isinstance(main.get("temp_max"), Real):
+                entry["maxes"].append(float(main["temp_max"]))  # type: ignore[union-attr]
         try:
-            date_obj = datetime.strptime(times[i], "%Y-%m-%d")
-            day_label = date_obj.strftime("%a")
+            hour = datetime.strptime(dt_txt, "%Y-%m-%d %H:%M:%S").hour
+            delta = abs(hour - 12)
         except ValueError:
-            day_label = times[i]
-        lo_s = _safe_temp(mins, i)
-        hi_s = _safe_temp(maxes, i)
-        desc = _safe_desc(codes, i)
-        day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
+            delta = 99
+        if delta < int(entry["midday_delta"]):
+            entry["midday_delta"] = delta
+            entry["desc"] = _format_desc(item.get("weather"))
 
+    parts: list[str] = []
+    for date_key, entry in list(grouped.items())[:3]:
+        try:
+            day_label = datetime.strptime(date_key, "%Y-%m-%d").strftime("%a")
+        except ValueError:
+            day_label = date_key
+        mins = entry["mins"]
+        maxes = entry["maxes"]
+        lo_s = _format_temp(min(mins) if mins else None)  # type: ignore[arg-type]
+        hi_s = _format_temp(max(maxes) if maxes else None)  # type: ignore[arg-type]
+        desc = str(entry.get("desc") or "Weather")
+        parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
+    return parts
+
+
+def _format_forecast_reply(sender: str, data: dict, location_name: str) -> str:
+    day_parts = _daily_forecast_parts(data)
+    if not day_parts:
+        return f"@[{sender}] Forecast unavailable for {location_name}"
     return f"@[{sender}] {location_name} 3-day: {', '.join(day_parts)}"
 
 
-async def forecast_broadcast(lat: float, lon: float, location_name: str) -> str:
-    """Fetch 3-day forecast and return a formatted broadcast string (no @sender prefix)."""
-    data = await get_forecast(lat, lon)
-    daily = data.get("daily", {})
-    times = daily.get("time", [])
-    codes = daily.get("weather_code", [])
-    maxes = daily.get("temperature_2m_max", [])
-    mins = daily.get("temperature_2m_min", [])
-
-    if not times:
+async def forecast_broadcast(lat: float, lon: float, location_name: str, api_key: str = "") -> str:
+    """Fetch a 3-day forecast and return a formatted broadcast string (no @sender prefix)."""
+    data = await get_forecast(lat, lon, api_key)
+    day_parts = _daily_forecast_parts(data)
+    if not day_parts:
         return f"Forecast unavailable for {location_name}"
-
-    day_parts = []
-    for i in range(min(3, len(times))):
-        try:
-            date_obj = datetime.strptime(times[i], "%Y-%m-%d")
-            day_label = date_obj.strftime("%a")
-        except ValueError:
-            day_label = times[i]
-        lo_s = _safe_temp(mins, i)
-        hi_s = _safe_temp(maxes, i)
-        desc = _safe_desc(codes, i)
-        day_parts.append(f"{day_label} {lo_s}-{hi_s}°C {desc}")
-
     return f"{location_name} 3-day forecast: {', '.join(day_parts)}"
