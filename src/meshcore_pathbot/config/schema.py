@@ -48,7 +48,8 @@ class BotConfig(BaseModel):
     weather_home_name: str = "Hampton Park"
     weather_home_lat: float = -38.0291
     weather_home_lon: float = 145.2591
-
+    weather_home_postcode: str = "3976"
+    openweathermap_api_key: str = ""
 
     # Daily forecast settings
     daily_forecast_enabled: bool = False

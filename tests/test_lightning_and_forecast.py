@@ -60,12 +60,13 @@ def _make_bot(*, forecast_enabled=False, forecast_channels=None, forecast_hour=6
 
 def test_forecast_broadcast_no_sender_prefix():
     data = {
-        "daily": {
-            "time": ["2026-03-01"],
-            "weather_code": [2],
-            "temperature_2m_max": [25.0],
-            "temperature_2m_min": [15.0],
-        }
+        "list": [
+            {
+                "dt_txt": "2026-03-01 12:00:00",
+                "main": {"temp_min": 15.0, "temp_max": 25.0},
+                "weather": [{"description": "partly cloudy"}],
+            }
+        ]
     }
     with patch(
         "meshcore_pathbot.core.weather.get_forecast",
@@ -78,7 +79,7 @@ def test_forecast_broadcast_no_sender_prefix():
 
 
 def test_forecast_broadcast_unavailable_on_empty_data():
-    data = {"daily": {"time": []}}
+    data = {"list": []}
     with patch(
         "meshcore_pathbot.core.weather.get_forecast",
         new=AsyncMock(return_value=data),
@@ -89,12 +90,18 @@ def test_forecast_broadcast_unavailable_on_empty_data():
 
 def test_forecast_reply_tolerates_partial_daily_data():
     data = {
-        "daily": {
-            "time": ["2026-03-01", "2026-03-02"],
-            "weather_code": [2, None],
-            "temperature_2m_max": [25.0, None],
-            "temperature_2m_min": [15.0],
-        }
+        "list": [
+            {
+                "dt_txt": "2026-03-01 12:00:00",
+                "main": {"temp_min": 15.0, "temp_max": 25.0},
+                "weather": [{"description": "partly cloudy"}],
+            },
+            {
+                "dt_txt": "2026-03-02 12:00:00",
+                "main": {},
+                "weather": [],
+            },
+        ]
     }
     with patch(
         "meshcore_pathbot.core.weather.get_forecast",
