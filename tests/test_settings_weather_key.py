@@ -34,6 +34,8 @@ def _save_settings_kwargs(openweathermap_api_key: str) -> dict:
         "serial_baud": 115200,
         "tcp_host": "",
         "tcp_port": 5000,
+        "tcp_health_check_interval": 30,
+        "tcp_reconnect_delay": 5,
         "ble_address": "",
         "node_name": "",
         "channel": 2,

@@ -21,7 +21,9 @@ ALL_COMMANDS = [
     "multipath",
     "prefix",
     "weather",
+    "wx",
     "forecast",
+    "fx",
     "help",
 ]
 
@@ -53,6 +55,8 @@ async def save_settings(
     serial_baud: int = Form(115200),
     tcp_host: str = Form(""),
     tcp_port: int = Form(5000),
+    tcp_health_check_interval: int = Form(30),
+    tcp_reconnect_delay: int = Form(5),
     ble_address: str = Form(""),
     node_name: str = Form(""),
     channel: int = Form(2),
@@ -87,6 +91,8 @@ async def save_settings(
     config.connection.serial_baud = serial_baud
     config.connection.tcp_host = tcp_host or None
     config.connection.tcp_port = tcp_port
+    config.connection.tcp_health_check_interval = max(0, tcp_health_check_interval)
+    config.connection.tcp_reconnect_delay = max(1, tcp_reconnect_delay)
     config.connection.ble_address = ble_address or None
     config.bot.node_name = node_name.strip()
     config.bot.channel = channel

@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 
-import pytest
 
 from meshcore_pathbot.config.schema import AppConfig, ChannelConfig
 from meshcore_pathbot.core.bot import PathBot

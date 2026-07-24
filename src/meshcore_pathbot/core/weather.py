@@ -159,15 +159,30 @@ async def forecast_reply_for_postcode(sender: str, postcode: str, api_key: str) 
     return _format_forecast_reply(sender, data, location_name)
 
 
+def _forecast_item_local_datetime(item: dict) -> datetime | None:
+    """Return a forecast item's timestamp in the system local timezone."""
+    timestamp = item.get("dt")
+    if isinstance(timestamp, Real):
+        return datetime.fromtimestamp(float(timestamp))
+
+    dt_txt = str(item.get("dt_txt") or "")
+    if not dt_txt:
+        return None
+    try:
+        return datetime.strptime(dt_txt, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
 def _daily_forecast_parts(data: dict) -> list[str]:
     grouped: OrderedDict[str, dict[str, object]] = OrderedDict()
     for item in data.get("list", []):
         if not isinstance(item, dict):
             continue
-        dt_txt = str(item.get("dt_txt") or "")
-        if not dt_txt:
+        local_dt = _forecast_item_local_datetime(item)
+        if local_dt is None:
             continue
-        date_key = dt_txt.split(" ", 1)[0]
+        date_key = local_dt.date().isoformat()
         entry = grouped.setdefault(date_key, {"mins": [], "maxes": [], "desc": None, "midday_delta": 99})
         main = item.get("main", {})
         if isinstance(main, dict):
@@ -175,11 +190,7 @@ def _daily_forecast_parts(data: dict) -> list[str]:
                 entry["mins"].append(float(main["temp_min"]))  # type: ignore[union-attr]
             if isinstance(main.get("temp_max"), Real):
                 entry["maxes"].append(float(main["temp_max"]))  # type: ignore[union-attr]
-        try:
-            hour = datetime.strptime(dt_txt, "%Y-%m-%d %H:%M:%S").hour
-            delta = abs(hour - 12)
-        except ValueError:
-            delta = 99
+        delta = abs(local_dt.hour - 12)
         if delta < int(entry["midday_delta"]):
             entry["midday_delta"] = delta
             entry["desc"] = _format_desc(item.get("weather"))

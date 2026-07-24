@@ -41,7 +41,9 @@ _CMD_PATTERNS: dict[str, re.Pattern[str]] = {
     "multipath": re.compile(r"[Mm]ultipath$"),
     "prefix":   re.compile(r"[Pp]refix\b"),
     "weather":  re.compile(r"[Ww]eather(\s+\d{4})?$"),
+    "wx":       re.compile(r"[Ww][Xx](\s+\d{4})?$"),
     "forecast": re.compile(r"[Ff]orecast(\s+\d{4})?$"),
+    "fx":       re.compile(r"[Ff][Xx](\s+\d{4})?$"),
     "help":     re.compile(r"[Hh]elp$"),
 }
 
@@ -220,7 +222,9 @@ class PathBot:
         self._last_command_at_by_user: dict[tuple[int, str], float] = {}
         self._daily_forecast_task: asyncio.Task | None = None
         self._contact_purge_task: asyncio.Task | None = None
+        self._tcp_health_task: asyncio.Task | None = None
         self._send_lock = asyncio.Lock()
+        self._stopping = False
 
     @property
     def is_connected(self) -> bool:
@@ -230,26 +234,11 @@ class PathBot:
         """Connect to MeshCore, sync contacts, subscribe to events, start auto-fetching."""
         log.info("Starting PathBot...")
 
+        self._stopping = False
         self._mc = await self._connect()
-        await self.bus.publish(AppEvent.BOT_CONNECTED)
+        await self._initialize_connected_meshcore()
 
-        await self._sync_contacts()
-
-        # Subscribe to each active channel
         active_channels = self.config.bot.get_active_channels()
-        await self._sync_channel_hashes(active_channels)
-
-        self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
-        self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
-        for ch in active_channels:
-            self._mc.subscribe(
-                EventType.CHANNEL_MSG_RECV,
-                self._on_channel_msg,
-                attribute_filters={"channel_idx": ch.id},
-            )
-
-        await self._mc.start_auto_message_fetching()
-
         channel_ids = [ch.id for ch in active_channels]
         log.info(
             f"PathBot running on channel(s) {channel_ids} | "
@@ -267,15 +256,24 @@ class PathBot:
         )
         log.info("Hourly contact purge task started")
 
+        conn = self.config.connection
+        if conn.type == "tcp" and conn.auto_reconnect and conn.tcp_health_check_interval > 0:
+            self._tcp_health_task = asyncio.create_task(
+                self._tcp_health_loop(), name="tcp-health"
+            )
+            log.info("TCP companion health check task started")
+
     async def stop(self) -> None:
         """Gracefully disconnect from MeshCore."""
-        for task in (self._daily_forecast_task, self._contact_purge_task):
+        self._stopping = True
+        for task in (self._daily_forecast_task, self._contact_purge_task, self._tcp_health_task):
             if task:
                 task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await task
         self._daily_forecast_task = None
         self._contact_purge_task = None
+        self._tcp_health_task = None
 
         if self._mc:
             try:
@@ -286,6 +284,87 @@ class PathBot:
             self._mc = None
             await self.bus.publish(AppEvent.BOT_DISCONNECTED)
             log.info("Disconnected from MeshCore")
+
+    async def _initialize_connected_meshcore(self) -> None:
+        """Sync state and subscribe handlers for the current MeshCore connection."""
+        if self._mc is None:
+            raise ConnectionError("MeshCore connection not available")
+
+        await self.bus.publish(AppEvent.BOT_CONNECTED)
+        await self._sync_contacts()
+
+        active_channels = self.config.bot.get_active_channels()
+        await self._sync_channel_hashes(active_channels)
+
+        self._mc.subscribe(EventType.ADVERTISEMENT, self._on_advert)
+        self._mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
+        for ch in active_channels:
+            self._mc.subscribe(
+                EventType.CHANNEL_MSG_RECV,
+                self._on_channel_msg,
+                attribute_filters={"channel_idx": ch.id},
+            )
+
+        await self._mc.start_auto_message_fetching()
+
+    async def _tcp_health_check(self) -> bool:
+        """Return whether the TCP companion responds to a lightweight command."""
+        if self._mc is None or not getattr(self._mc, "is_connected", False):
+            return False
+        try:
+            result = await self._mc.commands.send_appstart()
+        except Exception as exc:
+            log.warning("TCP companion health check failed: %s", exc)
+            return False
+        return result is not None and getattr(result, "type", None) != EventType.ERROR
+
+    async def _tcp_health_loop(self) -> None:
+        """Watch TCP companion health and reconnect when the link goes stale."""
+        interval = self.config.connection.tcp_health_check_interval
+        while not self._stopping:
+            await asyncio.sleep(interval)
+            if self._stopping:
+                return
+            healthy = await self._tcp_health_check()
+            if not healthy:
+                await self._reconnect_tcp_companion()
+
+    async def _reconnect_tcp_companion(self) -> None:
+        """Reconnect the TCP companion and restore subscriptions/message fetching."""
+        if self._stopping:
+            return
+
+        conn = self.config.connection
+        attempts = max(1, conn.max_reconnect_attempts)
+        delay = max(1, conn.tcp_reconnect_delay)
+        log.warning("TCP companion unhealthy; reconnecting")
+
+        old_mc = self._mc
+        self._mc = None
+        await self.bus.publish(AppEvent.BOT_DISCONNECTED)
+        if old_mc is not None:
+            with contextlib.suppress(Exception):
+                await old_mc.stop_auto_message_fetching()
+            with contextlib.suppress(Exception):
+                await old_mc.disconnect()
+
+        for attempt in range(1, attempts + 1):
+            if self._stopping:
+                return
+            try:
+                self._mc = await self._connect()
+                await self._initialize_connected_meshcore()
+                log.info("TCP companion reconnected on attempt %s/%s", attempt, attempts)
+                return
+            except Exception as exc:
+                self._mc = None
+                log.warning(
+                    "TCP reconnect attempt %s/%s failed: %s", attempt, attempts, exc
+                )
+                if attempt < attempts:
+                    await asyncio.sleep(delay)
+
+        log.error("TCP companion reconnect failed after %s attempts", attempts)
 
     async def _connect(self) -> MeshCore:
         """Create MeshCore connection based on config."""
@@ -805,10 +884,12 @@ class PathBot:
         is_multipath = bool(_CMD_PATTERNS["multipath"].match(msg_body))
         is_prefix =    bool(_CMD_PATTERNS["prefix"].match(msg_body))
         is_weather =   bool(_CMD_PATTERNS["weather"].match(msg_body))
+        is_wx =        bool(_CMD_PATTERNS["wx"].match(msg_body))
         is_forecast =  bool(_CMD_PATTERNS["forecast"].match(msg_body))
+        is_fx =        bool(_CMD_PATTERNS["fx"].match(msg_body))
         is_help =      bool(_CMD_PATTERNS["help"].match(msg_body))
 
-        if not (is_trace or is_ping or is_paths or is_multipath or is_prefix or is_weather or is_forecast or is_help):
+        if not (is_trace or is_ping or is_paths or is_multipath or is_prefix or is_weather or is_wx or is_forecast or is_fx or is_help):
             return
 
         # Determine which command matched and check per-channel permission
@@ -816,8 +897,12 @@ class PathBot:
             cmd_name = "help"
         elif is_weather:
             cmd_name = "weather"
+        elif is_wx:
+            cmd_name = "wx"
         elif is_forecast:
             cmd_name = "forecast"
+        elif is_fx:
+            cmd_name = "fx"
         elif is_prefix:
             cmd_name = "prefix"
         elif is_multipath:
@@ -853,10 +938,11 @@ class PathBot:
         self.stats.commands_processed += 1
 
         # Handle weather command — current conditions for home postcode or given AU postcode
-        if is_weather:
+        if is_weather or is_wx:
             log.info(f"Weather from {sender} on ch{channel_id}")
             cfg = self.config.bot
-            postcode = msg_body[len("weather"):].strip() or cfg.weather_home_postcode
+            command_len = len("wx") if is_wx else len("weather")
+            postcode = msg_body[command_len:].strip() or cfg.weather_home_postcode
             try:
                 reply = await weather_svc.current_weather_reply_for_postcode(
                     sender, postcode, cfg.openweathermap_api_key
@@ -865,10 +951,11 @@ class PathBot:
                 log.warning(f"Weather fetch failed: {exc}")
                 reply = f"@[{sender}] Weather unavailable for postcode {postcode}, try again later"
         # Handle forecast command — 3-day outlook for home postcode or given AU postcode
-        elif is_forecast:
+        elif is_forecast or is_fx:
             log.info(f"Forecast from {sender} on ch{channel_id}")
             cfg = self.config.bot
-            postcode = msg_body[len("forecast"):].strip() or cfg.weather_home_postcode
+            command_len = len("fx") if is_fx else len("forecast")
+            postcode = msg_body[command_len:].strip() or cfg.weather_home_postcode
             try:
                 reply = await weather_svc.forecast_reply_for_postcode(
                     sender, postcode, cfg.openweathermap_api_key
