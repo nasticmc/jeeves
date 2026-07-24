@@ -9,6 +9,8 @@ serial_baud = 115200
 # ble_address = "AA:BB:CC:DD:EE:FF"
 auto_reconnect = true
 max_reconnect_attempts = 10
+tcp_health_check_interval = 30      # TCP companion watchdog interval in seconds (0 = disabled)
+tcp_reconnect_delay = 5             # Delay between TCP reconnect attempts
 
 [bot]
 node_name = ""                     # Friendly name for this MeshCore node
@@ -33,9 +35,9 @@ daily_forecast_hour = 6            # Hour to send forecast (Melbourne time, 0-23
 
 # Channel management — define multiple channels with per-channel command control.
 # If no [[bot.channels]] entries exist, the bot falls back to bot.channel above.
-# enabled_commands can include: "trace", "ping", "paths", "multipath", "prefix", "weather", "forecast", "help"
+# enabled_commands can include: "trace", "ping", "paths", "multipath", "prefix", "weather", "wx", "forecast", "fx", "help"
 # Daily forecast is a scheduled feature (not a per-user command)
-# Note: "weather" and "forecast" use OpenWeatherMap by AU postcode, require openweathermap_api_key,
+# Note: "weather"/"wx" and "forecast"/"fx" use OpenWeatherMap by AU postcode, require openweathermap_api_key,
 # and default to off — add them explicitly to enable per channel
 # rate_limit_enabled enables per-user command rate limiting on the channel
 # rate_limit_seconds is the per-user cooldown window (default 120 seconds)

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import os
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -76,6 +78,51 @@ def test_forecast_broadcast_no_sender_prefix():
     assert result.startswith("Hampton Park")
     assert "@[" not in result
     assert "3-day forecast" in result
+
+
+def test_forecast_broadcast_groups_days_by_system_local_time(monkeypatch):
+    """Forecast dates should use the system timezone instead of UTC dt_txt dates."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("tzset is not available on this platform")
+
+    original_tz = os.environ.get("TZ")
+    monkeypatch.setenv("TZ", "Australia/Melbourne")
+    time.tzset()
+    try:
+        data = {
+            "list": [
+                {
+                    "dt": int(datetime.datetime(2026, 3, 1, 15, 0, tzinfo=datetime.timezone.utc).timestamp()),
+                    "dt_txt": "2026-03-01 15:00:00",
+                    "main": {"temp_min": 17.0, "temp_max": 23.0},
+                    "weather": [{"description": "showers"}],
+                },
+                {
+                    "dt": int(datetime.datetime(2026, 3, 2, 1, 0, tzinfo=datetime.timezone.utc).timestamp()),
+                    "dt_txt": "2026-03-02 01:00:00",
+                    "main": {"temp_min": 18.0, "temp_max": 27.0},
+                    "weather": [{"description": "sunny"}],
+                },
+            ]
+        }
+        with patch(
+            "meshcore_pathbot.core.weather.get_forecast",
+            new=AsyncMock(return_value=data),
+        ):
+            result = asyncio.run(forecast_broadcast(-38.0, 145.0, "Hampton Park"))
+    finally:
+        _restore_tz(original_tz)
+
+    assert "Mon 17-27°C Sunny" in result
+    assert "Sun " not in result
+
+
+def _restore_tz(original_tz: str | None) -> None:
+    if original_tz is None:
+        os.environ.pop("TZ", None)
+    else:
+        os.environ["TZ"] = original_tz
+    time.tzset()
 
 
 def test_forecast_broadcast_unavailable_on_empty_data():

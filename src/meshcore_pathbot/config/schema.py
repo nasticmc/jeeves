@@ -19,6 +19,8 @@ class ConnectionConfig(BaseModel):
     ble_address: str | None = None
     auto_reconnect: bool = True
     max_reconnect_attempts: int = 10
+    tcp_health_check_interval: int = Field(default=30, ge=0)
+    tcp_reconnect_delay: int = Field(default=5, ge=1)
 
 
 class ChannelConfig(BaseModel):

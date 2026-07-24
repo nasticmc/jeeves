@@ -159,6 +159,34 @@ def test_weather_http_error_sends_fallback():
     assert "unavailable" in commands.sent[0][1].lower()
 
 
+def test_wx_short_command_with_postcode():
+    """wx 3000 should behave like weather 3000 when wx is enabled."""
+    bot, commands = _make_bot(["wx"])
+
+    with patch(
+        "meshcore_pathbot.core.weather.current_weather_reply_for_postcode",
+        new=AsyncMock(return_value="@[Alice] Melbourne: 20C"),
+    ) as mock_weather:
+        event = SimpleNamespace(payload={"text": "Alice: wx 3000", "channel_idx": 2})
+        asyncio.run(bot._on_channel_msg(event))
+
+    mock_weather.assert_called_once_with("Alice", "3000", "test-key")
+    assert commands.sent == [(2, "@[Alice] Melbourne: 20C")]
+
+def test_wx_short_command_requires_wx_enabled():
+    """wx is a separate per-channel command and should not run when only weather is enabled."""
+    bot, commands = _make_bot(["weather"])
+
+    with patch(
+        "meshcore_pathbot.core.weather.current_weather_reply_for_postcode",
+        new=AsyncMock(return_value="@[Alice] Melbourne: 20C"),
+    ) as mock_weather:
+        event = SimpleNamespace(payload={"text": "Alice: wx 3000", "channel_idx": 2})
+        asyncio.run(bot._on_channel_msg(event))
+
+    mock_weather.assert_not_called()
+    assert commands.sent == []
+
 # ── forecast command enabled ───────────────────────────────────────────────────
 
 def test_forecast_home_location_reply():
@@ -209,6 +237,20 @@ def test_forecast_http_error_sends_fallback():
     assert len(commands.sent) == 1
     assert "unavailable" in commands.sent[0][1].lower()
 
+
+def test_fx_short_command_without_postcode_uses_home_postcode():
+    """fx should behave like forecast and default to the configured home postcode."""
+    bot, commands = _make_bot(["fx"])
+
+    with patch(
+        "meshcore_pathbot.core.weather.forecast_reply_for_postcode",
+        new=AsyncMock(return_value="@[Alice] Hampton Park: forecast"),
+    ) as mock_forecast:
+        event = SimpleNamespace(payload={"text": "Alice: FX", "channel_idx": 2})
+        asyncio.run(bot._on_channel_msg(event))
+
+    mock_forecast.assert_called_once_with("Alice", "3976", "test-key")
+    assert commands.sent == [(2, "@[Alice] Hampton Park: forecast")]
 
 # ── rate limiting applies to weather commands ──────────────────────────────────
 
