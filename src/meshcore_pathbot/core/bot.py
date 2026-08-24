@@ -292,6 +292,7 @@ class PathBot:
 
         await self.bus.publish(AppEvent.BOT_CONNECTED)
         await self._sync_contacts()
+        await self._configure_flood_scope()
 
         active_channels = self.config.bot.get_active_channels()
         await self._sync_channel_hashes(active_channels)
@@ -306,6 +307,22 @@ class PathBot:
             )
 
         await self._mc.start_auto_message_fetching()
+
+    async def _configure_flood_scope(self) -> None:
+        """Apply the configured region scope to bot-originated messages."""
+        scope = self.config.bot.flood_scope.strip()
+        if not scope:
+            return
+        if self._mc is None:
+            raise ConnectionError("MeshCore connection not available")
+        setter = getattr(self._mc.commands, "set_flood_scope", None)
+        if setter is None:
+            raise RuntimeError("Installed MeshCore library does not support flood scopes")
+        result = await setter(scope)
+        if result is None or getattr(result, "type", None) == EventType.ERROR:
+            payload = getattr(result, "payload", None)
+            raise ConnectionError(f"Failed to set MeshCore flood scope {scope!r}: {payload}")
+        log.info("MeshCore flood scope set to %s", scope)
 
     async def _tcp_health_check(self) -> bool:
         """Return whether the TCP companion responds to a lightweight command."""

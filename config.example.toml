@@ -14,6 +14,7 @@ tcp_reconnect_delay = 5             # Delay between TCP reconnect attempts
 
 [bot]
 node_name = ""                     # Friendly name for this MeshCore node
+flood_scope = ""                 # Optional MeshCore region, e.g. "au-vic"
 channel = 2                        # Default channel (used when no [[bot.channels]] defined)
 repeaters_file = "repeaters.db"    # Path to repeater SQLite database
 ignore_list = ["jeeves"]           # Node names to ignore (case-insensitive partial match)

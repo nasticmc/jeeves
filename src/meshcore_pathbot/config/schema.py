@@ -39,6 +39,9 @@ class BotConfig(BaseModel):
     """Bot behavior settings."""
 
     node_name: str = ""
+    # Optional MeshCore flood scope for all bot-originated messages.
+    # Empty preserves the radio's existing scope behaviour.
+    flood_scope: str = ""
     channel: int = Field(default=2, ge=0, le=7)
     channels: list[ChannelConfig] = Field(default_factory=list)
     repeaters_file: Path = Path("repeaters.db")
