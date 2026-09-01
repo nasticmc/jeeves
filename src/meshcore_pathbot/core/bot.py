@@ -879,20 +879,11 @@ class PathBot:
         route_type = rx.get("route_type")
         msg_is_region_scoped = isinstance(route_type, int) and route_type in (0x00, 0x03)
 
-        configured_scope = self.config.bot.flood_scope.strip()
-        incoming_transport_code = rx.get("transport_code") or data.get("transport_code")
-        if configured_scope:
-            expected_transport_code = self._transport_code_for_scope(configured_scope)
-            if not isinstance(incoming_transport_code, str) or (
-                incoming_transport_code.lower() != expected_transport_code
-            ):
-                log.debug(
-                    "Ignoring channel %s message from %s outside configured flood scope %s",
-                    channel_id,
-                    sender,
-                    configured_scope,
-                )
-                return
+        # Inbound messages are accepted regardless of whether the companion
+        # provides a correlated transport code. The configured flood scope is
+        # applied to bot-originated replies by _configure_flood_scope(); an
+        # inbound transport-code filter would discard valid/un-correlated
+        # channel events before command handling.
 
         log.debug(
             f"Channel {channel_id} msg from {sender}: {text} "

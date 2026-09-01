@@ -66,7 +66,8 @@ def test_configured_region_accepts_matching_transport_code() -> None:
     assert commands.sent == [(2, "@[Alice] rxed a1 (1 hops)")]
 
 
-def test_configured_region_ignores_unscoped_and_other_region_messages() -> None:
+def test_configured_region_accepts_inbound_messages_without_filtering() -> None:
+    """Inbound scope is not enforced; replies use the configured radio scope."""
     bot, commands = _make_bot([2])
     bot.config.bot.flood_scope = "au-vic"
     bot._chan_hash_by_idx = {2: "aa"}
@@ -87,7 +88,8 @@ def test_configured_region_ignores_unscoped_and_other_region_messages() -> None:
             "text": "Alice: ping", "channel_idx": 2,
         })))
 
-    assert commands.sent == []
+    assert len(commands.sent) == 2
+    assert all(reply.startswith("@[Alice] rxed a1 (1 hops)") for _, reply in commands.sent)
 
 
 def test_rx_log_routed_to_correct_channel_by_chan_hash() -> None:
