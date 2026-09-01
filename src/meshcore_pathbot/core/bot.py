@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import datetime
+import hashlib
 import logging
 import re
 import time
@@ -323,6 +324,14 @@ class PathBot:
             payload = getattr(result, "payload", None)
             raise ConnectionError(f"Failed to set MeshCore flood scope {scope!r}: {payload}")
         log.info("MeshCore flood scope set to %s", scope)
+
+    @staticmethod
+    def _transport_code_for_scope(scope: str) -> str:
+        """Return MeshCore's four-byte transport code for a region name."""
+        scope_name = scope.strip()
+        if not scope_name.startswith("#"):
+            scope_name = "#" + scope_name
+        return hashlib.sha256(scope_name.encode("utf-8")).hexdigest()[:8]
 
     async def _tcp_health_check(self) -> bool:
         """Return whether the TCP companion responds to a lightweight command."""
@@ -869,6 +878,21 @@ class PathBot:
         # unknown — no RX correlation, so route_type is missing).
         route_type = rx.get("route_type")
         msg_is_region_scoped = isinstance(route_type, int) and route_type in (0x00, 0x03)
+
+        configured_scope = self.config.bot.flood_scope.strip()
+        incoming_transport_code = rx.get("transport_code") or data.get("transport_code")
+        if configured_scope:
+            expected_transport_code = self._transport_code_for_scope(configured_scope)
+            if not isinstance(incoming_transport_code, str) or (
+                incoming_transport_code.lower() != expected_transport_code
+            ):
+                log.debug(
+                    "Ignoring channel %s message from %s outside configured flood scope %s",
+                    channel_id,
+                    sender,
+                    configured_scope,
+                )
+                return
 
         log.debug(
             f"Channel {channel_id} msg from {sender}: {text} "

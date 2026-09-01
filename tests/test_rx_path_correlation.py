@@ -45,6 +45,51 @@ def _make_bot(channel_ids: list[int]) -> tuple[PathBot, DummyCommands]:
     return bot, commands
 
 
+def test_configured_region_accepts_matching_transport_code() -> None:
+    bot, commands = _make_bot([2])
+    bot.config.bot.flood_scope = "au-vic"
+    bot._chan_hash_by_idx = {2: "aa"}
+
+    asyncio.run(bot._on_rx_log_data(SimpleNamespace(payload={
+        "chan_hash": "aa",
+        "payload_type": _PAYLOAD_TYPE_CHANNEL_MSG,
+        "route_type": 0x00,
+        "transport_code": "9683a543",
+        "path_len": 1,
+        "path_hash_size": 1,
+        "path": "a1",
+    })))
+    asyncio.run(bot._on_channel_msg(SimpleNamespace(payload={
+        "text": "Alice: ping", "channel_idx": 2,
+    })))
+
+    assert commands.sent == [(2, "@[Alice] rxed a1 (1 hops)")]
+
+
+def test_configured_region_ignores_unscoped_and_other_region_messages() -> None:
+    bot, commands = _make_bot([2])
+    bot.config.bot.flood_scope = "au-vic"
+    bot._chan_hash_by_idx = {2: "aa"}
+
+    for transport_code in (None, "856eebe2"):
+        payload = {
+            "chan_hash": "aa",
+            "payload_type": _PAYLOAD_TYPE_CHANNEL_MSG,
+            "route_type": 0x00 if transport_code else 0x01,
+            "path_len": 1,
+            "path_hash_size": 1,
+            "path": "a1",
+        }
+        if transport_code:
+            payload["transport_code"] = transport_code
+        asyncio.run(bot._on_rx_log_data(SimpleNamespace(payload=payload)))
+        asyncio.run(bot._on_channel_msg(SimpleNamespace(payload={
+            "text": "Alice: ping", "channel_idx": 2,
+        })))
+
+    assert commands.sent == []
+
+
 def test_rx_log_routed_to_correct_channel_by_chan_hash() -> None:
     """A ping on channel 2 must NOT receive path data logged for channel 3."""
     bot, commands = _make_bot([2, 3])
